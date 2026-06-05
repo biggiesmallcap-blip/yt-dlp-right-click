@@ -1,88 +1,109 @@
 # yt-dlp Right Click
 
-A local Chrome extension for Windows that sends page, link, selected-text, and media URLs to `yt-dlp` through a Chrome native messaging host.
+<p align="center">
+  <img src="docs/assets/github-hero.png" alt="yt-dlp Right Click banner showing the extension popup and right-click presets">
+</p>
 
-The extension handles the browser UX. The native host handles local execution because Chrome extensions cannot launch local programs directly.
+<p align="center">
+  <a href="https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/tag/v1.0.0"><img alt="Release" src="https://img.shields.io/badge/release-v1.0.0-14b8a6?style=for-the-badge"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb?style=for-the-badge">
+  <img alt="Chrome MV3" src="https://img.shields.io/badge/Chrome-MV3-f97316?style=for-the-badge">
+  <img alt="Native host" src="https://img.shields.io/badge/native%20host-Rust-111827?style=for-the-badge">
+</p>
 
-## What It Does
+`yt-dlp Right Click` is a local Chrome extension for Windows that sends page, link, selected-text, and media URLs to safe local `yt-dlp` presets through a Rust native messaging host.
 
-- Adds a `yt-dlp` right-click menu on any site.
-- Adds a popup `Download this site` fallback when right-click capture is awkward.
-- Remembers the last download preset used by the popup, right-click menu, or retry action.
-- Sends the selected URL to preset-safe `yt-dlp` commands.
-- Shows running downloads on the extension badge.
-- Shows a compact downloader popup by default, with an Advanced log view when needed.
-- Adds `Open folder` for completed jobs and `Retry` for failed jobs.
-- Stores downloads under `Video`, `Audio`, and `Files` folders.
-- Uses clean filenames like `Title.mp3` instead of `Title [videoid].mp3`.
-- Uses yt-dlp's `after_move:filepath` output to track the final saved file.
-- Cleans matching yt-dlp temp artifacts like `.part` and `.ytdl` files after successful downloads.
-- Keeps playlist downloads behind explicit playlist menu items.
-- Supports automatic Chrome cookie retry through `--cookies-from-browser chrome` only when yt-dlp reports that login/cookies are needed.
-- Auto-detects installed JavaScript runtimes for YouTube extraction warnings.
-- Can run `yt-dlp -U` manually or once per day when enabled.
+The browser extension handles the UI. The native host owns local execution, validates every request, and launches `yt-dlp.exe` directly without a shell.
+
+## Highlights
+
+- Right-click any page, link, selected URL, image, video, or audio element.
+- Download from a compact popup when right-click capture is awkward.
+- Use preset-only commands for MP4 video, MP3/M4A audio, best file, and explicit playlists.
+- Track active jobs with the extension badge and recent jobs in the popup.
+- Open completed download folders and retry failed jobs.
+- Keep filenames clean with `Title.ext` output instead of noisy video IDs.
+- Retry with Chrome cookies only when `yt-dlp` reports that login or cookies are required.
+- Detect local JavaScript runtimes for modern YouTube extraction warnings.
+- Run `yt-dlp -U` manually or once per day when enabled.
+
+## Download
+
+Grab the latest GitHub release:
+
+[Download v1.0.0](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/tag/v1.0.0)
+
+Release assets:
+
+- `yt-dlp-right-click-extension-v1.0.0.zip`
+- `yt-dlp-right-click-native-host-windows-v1.0.0.zip`
 
 ## Presets
 
-- Video: Best MP4
-- Video: MP4 up to 1080p
-- Video: Small MP4 up to 720p
-- Audio: MP3
-- Audio: M4A
-- File: Best available
-- Playlist: Best MP4
-- Playlist: MP3 audio
+| Group | Presets |
+| --- | --- |
+| Video | Best MP4, MP4 up to 1080p, Small MP4 up to 720p |
+| Audio | MP3, M4A |
+| File | Best available |
+| Playlist | Best MP4, MP3 audio |
+
+Playlists are only enabled from explicit playlist menu items. Normal video/audio/file presets use `--no-playlist`.
+
+## Install
+
+These steps target Google Chrome on Windows.
+
+1. Install or unpack the Chrome extension.
+2. Install the Windows native host package.
+3. Open the extension settings page.
+4. Set paths for `yt-dlp.exe`, `ffmpeg.exe`, and your download folder.
+5. Click `Test native host and settings`.
+
+For source builds:
+
+```powershell
+cd native-host
+cargo build --release
+cd ..
+.\scripts\install-native-host.ps1 -ExtensionId "<your-extension-id>"
+```
+
+See [docs/INSTALL.md](docs/INSTALL.md) for full setup and troubleshooting.
+
+## Security Model
+
+The extension can collect a URL and preset ID. It cannot choose arbitrary command-line arguments.
+
+The native host:
+
+- accepts only `http://` and `https://` URLs
+- rejects `file:`, `javascript:`, `data:`, `chrome:`, and `blob:` URLs
+- validates paths as absolute local paths
+- launches `yt-dlp.exe` directly with an argument array
+- restricts final output and `Open folder` actions to the configured download root
+- excludes generated native host manifests from release artifacts
+
+See [SECURITY.md](SECURITY.md) for the trust boundary and expected limits.
 
 ## Project Layout
 
-- `extension/` - Chrome MV3 extension.
-- `native-host/` - Rust native messaging host.
-- `native-host/com.ytdlp_right_click.native_host.template.json` - native host manifest template for public builds.
-- `scripts/` - Windows install/uninstall helper scripts.
-- `docs/INSTALL.md` - setup instructions.
-- `SECURITY.md` - security boundary and threat notes.
+```text
+extension/       Chrome MV3 extension
+native-host/     Rust native messaging host
+scripts/         Windows install, uninstall, and release packaging scripts
+docs/            Install and release documentation
+```
 
-## Quick Start
-
-1. Build the native host:
-
-   ```powershell
-   cd native-host
-   cargo build --release
-   ```
-
-2. Load `extension/` as an unpacked extension in Chrome.
-3. Copy the extension ID from `chrome://extensions`.
-4. Register the native host. For source builds, double-click `scripts\install-native-host.cmd`, or run:
-
-   ```powershell
-   .\scripts\install-native-host.ps1 -ExtensionId "<your-extension-id>"
-   ```
-
-5. Open the extension options page and set:
-
-   - full path to `yt-dlp.exe` or its folder
-   - full path to `ffmpeg.exe` or the ffmpeg folder
-   - download folder
-   - cookie mode, default `Auto`
-   - JavaScript runtime, default `Auto`
-   - popup display mode, default `Simple`
-   - optional daily `yt-dlp -U`, default off
-
-See `docs/INSTALL.md` for full steps.
-
-## GitHub Release Artifacts
-
-Release artifacts are built with:
+## Build Release Artifacts
 
 ```powershell
 .\scripts\package-release.ps1 -Version 1.0.0
 ```
 
-The script creates an extension ZIP and a Windows native host ZIP under `dist\1.0.0`. The native host ZIP is assembled from a whitelist, so a local generated native host manifest is not included.
+The script creates extension and native-host ZIP files under `dist\1.0.0`. The native host ZIP is assembled from a whitelist, so local generated manifests are not included.
 
 ## Public Build Note
 
-Do not ship `native-host/com.ytdlp_right_click.native_host.json` from a local machine. It is generated by the install script and contains an absolute user-specific executable path plus the installed Chrome extension ID.
+Do not publish `native-host/com.ytdlp_right_click.native_host.json` from a local machine. It is generated by the install script and contains an absolute user-specific executable path plus the installed Chrome extension ID.
 
-Use `native-host/com.ytdlp_right_click.native_host.template.json` as documentation/template only. For a Chrome Web Store release, users should run `scripts/install-native-host.ps1` with the published extension ID after installing the native host executable.
+Use `native-host/com.ytdlp_right_click.native_host.template.json` as documentation/template only.
