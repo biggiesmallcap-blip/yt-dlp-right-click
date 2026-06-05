@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yt-dlp Jobs</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <div class="brand-row">
+        <div class="brand">
+          <img src="icons/icon128.png" alt="" aria-hidden="true">
+          <h1>yt-dlp</h1>
+        </div>
+        <label id="display-mode-wrap" class="switch-control" title="Show advanced logs">
+          <input id="display-mode" type="checkbox">
+          <span>Logs</span>
+        </label>
+      </div>
+      <div class="header-actions">
+        <button id="cookies" type="button" title="Click to cycle cookie mode">Cookies</button>
+        <button id="settings" type="button">Settings</button>
+        <button id="clear" type="button">Clear finished</button>
+      </div>
+    </header>
+
+    <section id="settings-status"></section>
+
+    <section class="manual-download" aria-label="Download current site">
+      <select id="manual-preset" aria-label="Download preset"></select>
+      <button id="manual-download" type="button">Download this site</button>
+    </section>
+
+    <main id="jobs"></main>
+
+    <template id="job-template">
+      <article class="job">
+        <div class="job-top">
+          <span class="status"></span>
+          <strong class="title"></strong>
+        </div>
+        <a class="url" target="_blank" rel="noreferrer"></a>
+        <div class="meta"></div>
+        <div class="summary"></div>
+        <div class="job-actions"></div>
+        <pre class="output"></pre>
+      </article>
+    </template>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

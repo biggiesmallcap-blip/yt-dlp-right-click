@@ -1,0 +1,9 @@
+{
+  "name": "com.ytdlp_right_click.native_host",
+  "description": "yt-dlp Right Click native messaging host",
+  "path": "<absolute path to ytdlp_native_host.exe>",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://<chrome extension id>/"
+  ]
+}

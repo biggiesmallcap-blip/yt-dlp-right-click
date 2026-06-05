@@ -1,0 +1,12 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">yt-dlp Clicker Transparent Icon</title>
+  <desc id="desc">A simple transparent browser extension icon: red rounded video tile with a bold white download arrow.</desc>
+
+  <!-- Transparent background by default -->
+
+  <rect x="30" y="44" width="196" height="168" rx="42" fill="#FF1515"/>
+
+  <!-- Bold download symbol, optimized for tiny sizes -->
+  <path d="M112 78C112 71.4 117.4 66 124 66H132C138.6 66 144 71.4 144 78V128H166C171.3 128 174 134.4 170.2 138.2L135.1 173.3C131.2 177.2 124.8 177.2 120.9 173.3L85.8 138.2C82 134.4 84.7 128 90 128H112V78Z" fill="white"/>
+  <rect x="82" y="184" width="92" height="18" rx="9" fill="white"/>
+</svg>

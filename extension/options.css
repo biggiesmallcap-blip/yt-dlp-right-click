@@ -1,0 +1,172 @@
+:root {
+  color-scheme: light dark;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+header {
+  margin-bottom: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.brand img {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+p {
+  margin: 0;
+  color: color-mix(in srgb, CanvasText 70%, Canvas 30%);
+}
+
+.setup-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, Canvas 84%);
+  border-radius: 8px;
+  padding: 14px;
+  background: color-mix(in srgb, CanvasText 3%, Canvas 97%);
+}
+
+h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.setup-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.note {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+form {
+  display: grid;
+  gap: 18px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas 76%);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 14px Consolas, "Courier New", monospace;
+  background: Canvas;
+  color: CanvasText;
+}
+
+select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas 76%);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: Canvas;
+  color: CanvasText;
+  font: 14px Arial, Helvetica, sans-serif;
+}
+
+.checkbox {
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  font-weight: 400;
+}
+
+.checkbox input {
+  margin-top: 2px;
+}
+
+.warning {
+  margin: -8px 0 0;
+  color: #b45309;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: 700 14px Arial, Helvetica, sans-serif;
+  cursor: pointer;
+}
+
+button[type="submit"] {
+  background: #0f766e;
+  color: white;
+}
+
+button[type="button"] {
+  background: color-mix(in srgb, CanvasText 8%, Canvas 92%);
+  color: CanvasText;
+  border-color: color-mix(in srgb, CanvasText 18%, Canvas 82%);
+}
+
+#status {
+  margin-top: 22px;
+  white-space: pre-wrap;
+  font: 13px Consolas, "Courier New", monospace;
+}
+
+.ok {
+  color: #0f766e;
+}
+
+.error {
+  color: #b91c1c;
+}

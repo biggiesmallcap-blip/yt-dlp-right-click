@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yt-dlp Right Click Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">
+          <img src="icons/icon128.png" alt="" aria-hidden="true">
+          <h1>yt-dlp Right Click</h1>
+        </div>
+        <p>Set the local tools and download folder used by the native host.</p>
+      </header>
+
+      <section class="setup-panel">
+        <h2>Native host setup</h2>
+        <div class="setup-grid">
+          <label>
+            <span>Extension ID</span>
+            <input id="extensionId" type="text" readonly>
+          </label>
+          <label>
+            <span>Source install command</span>
+            <input id="installCommand" type="text" readonly>
+          </label>
+        </div>
+        <div class="setup-actions">
+          <button id="copy-extension-id" type="button">Copy extension ID</button>
+          <button id="copy-install-command" type="button">Copy install command</button>
+        </div>
+        <p class="note">
+          Public builds should use the Windows installer. Source builds can run the command from the project folder.
+        </p>
+      </section>
+
+      <form id="settings-form">
+        <label>
+          <span>yt-dlp.exe path or folder</span>
+          <input id="ytDlpPath" type="text" spellcheck="false" placeholder="C:\Tools\yt-dlp">
+        </label>
+
+        <label>
+          <span>ffmpeg path or folder</span>
+          <input id="ffmpegPath" type="text" spellcheck="false" placeholder="C:\Tools\ffmpeg\bin">
+        </label>
+
+        <label>
+          <span>Download folder</span>
+          <input id="downloadDir" type="text" spellcheck="false" placeholder="D:\Downloads\yt-dlp">
+        </label>
+
+        <label>
+          <span>Cookie mode</span>
+          <select id="cookieMode">
+            <option value="auto">Auto: try without cookies, retry only if needed</option>
+            <option value="never">Never use Chrome cookies</option>
+            <option value="always">Always use Chrome cookies</option>
+          </select>
+        </label>
+        <p class="warning">
+          Auto is best for mixed sites. On Windows, always using Chrome cookies can fail while Chrome has its cookie database locked.
+        </p>
+
+        <label>
+          <span>JavaScript runtime for YouTube</span>
+          <select id="jsRuntime">
+            <option value="auto">Auto: use installed runtime if found</option>
+            <option value="">yt-dlp default</option>
+            <option value="deno">Deno</option>
+            <option value="node">Node.js</option>
+            <option value="quickjs">QuickJS</option>
+            <option value="bun">Bun</option>
+          </select>
+        </label>
+
+        <label>
+          <span>JavaScript runtime path or folder</span>
+          <input id="jsRuntimePath" type="text" spellcheck="false" placeholder="C:\Program Files\nodejs\node.exe">
+        </label>
+        <p class="warning">
+          Auto is best for most users. Install Node.js or Deno once and the native host will detect it from PATH or common Windows install folders.
+        </p>
+
+        <label>
+          <span>Popup display</span>
+          <select id="displayMode">
+            <option value="simple">Simple downloader</option>
+            <option value="advanced">Advanced logs</option>
+          </select>
+        </label>
+
+        <label class="checkbox">
+          <input id="autoUpdateYtDlp" type="checkbox">
+          <span>Automatically run yt-dlp -U once per day</span>
+        </label>
+        <p class="warning">
+          This updates the configured yt-dlp executable. Leave it off if you manage yt-dlp through pip, winget, scoop, or another package manager.
+        </p>
+
+        <div class="actions">
+          <button id="save" type="submit">Save</button>
+          <button id="test" type="button">Test native host and settings</button>
+          <button id="update-ytdlp" type="button">Run yt-dlp -U now</button>
+        </div>
+      </form>
+
+      <section id="status" aria-live="polite"></section>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>
