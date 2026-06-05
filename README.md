@@ -11,9 +11,13 @@
   <img alt="Native host" src="https://img.shields.io/badge/native%20host-Rust-111827?style=for-the-badge">
 </p>
 
-`yt-dlp Right Click` is a local Chrome extension for Windows that sends page, link, selected-text, and media URLs to safe local `yt-dlp` presets through a Rust native messaging host.
+## About
 
-The browser extension handles the UI. The native host owns local execution, validates every request, and launches `yt-dlp.exe` directly without a shell.
+`yt-dlp Right Click` adds local `yt-dlp` download presets directly to Chrome's right-click menu and extension popup.
+
+It is built for people who already use `yt-dlp` on Windows and want a quick browser-side launcher without copying URLs into a terminal. The extension captures the current page, link, selected URL, image, video, or audio URL, then sends it to a local Rust native messaging host.
+
+Chrome extensions cannot launch local programs by themselves. This project uses Chrome's native messaging system: the browser extension handles the UI, and the native host handles local execution. The host validates every request, maps preset IDs to hardcoded `yt-dlp` arguments, and launches `yt-dlp.exe` directly without a shell.
 
 ## Highlights
 
@@ -40,6 +44,30 @@ Release assets:
 
 The native host ZIP includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or a local build step.
 
+## Prerequisites
+
+| Requirement | Why it is needed | Notes |
+| --- | --- | --- |
+| Windows | The native host and installer target Windows. | User-level install; no administrator rights required. |
+| Google Chrome | The extension is a Chrome MV3 extension. | Chromium-based browsers may work if they support Chrome native messaging, but Chrome is the supported target. |
+| `yt-dlp.exe` | Performs the actual download. | Set either the full `yt-dlp.exe` path or its containing folder in extension settings. |
+| `ffmpeg.exe` | Required for MP4 merging and audio extraction presets. | Set either the full `ffmpeg.exe` path or the folder containing it. |
+| Download folder | Where output files, logs, and subfolders are written. | The host creates `Video`, `Audio`, `Files`, and `_yt-dlp-right-click-logs` under this root. |
+| Optional JavaScript runtime | Helps with some modern YouTube extraction warnings. | Leave on `Auto`; Node.js, Deno, QuickJS, or Bun can be detected. |
+
+What is bundled:
+
+- Chrome extension files in the extension ZIP.
+- A prebuilt `ytdlp_native_host.exe` in the Windows native host ZIP.
+- Installer scripts that register the native host for the current Windows user.
+
+What is not bundled:
+
+- `yt-dlp.exe`
+- `ffmpeg.exe`
+- browser cookies or account credentials
+- any DRM, paywall, or site-restriction bypass
+
 ## Presets
 
 | Group | Presets |
@@ -51,7 +79,7 @@ The native host ZIP includes a prebuilt `ytdlp_native_host.exe`. Release users d
 
 Playlists are only enabled from explicit playlist menu items. Normal video/audio/file presets use `--no-playlist`.
 
-## Install
+## Quick Install
 
 These steps target Google Chrome on Windows.
 
@@ -63,7 +91,7 @@ These steps target Google Chrome on Windows.
 6. Set paths for `yt-dlp.exe`, `ffmpeg.exe`, and your download folder.
 7. Click `Test native host and settings`.
 
-Chrome extensions cannot ship or launch native executables by themselves, so the native host still has to be installed once on the local machine. It does not have to be built by the user.
+The native host must be installed once so Chrome knows which local executable is allowed to receive messages from this extension. It does not have to be built by the user.
 
 For development from source:
 
@@ -75,15 +103,6 @@ cd ..
 ```
 
 See [docs/INSTALL.md](docs/INSTALL.md) for full setup and troubleshooting.
-
-## Requirements
-
-- Windows
-- Google Chrome
-- `yt-dlp.exe`
-- `ffmpeg.exe` for video merge and audio extraction presets
-
-The extension package provides the browser UI. The native host package provides the prebuilt local bridge between Chrome and `yt-dlp`.
 
 ## Security Model
 

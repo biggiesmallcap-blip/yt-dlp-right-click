@@ -2,6 +2,18 @@
 
 These instructions target Google Chrome on Windows.
 
+## Prerequisites
+
+Release users need:
+
+- Windows
+- Google Chrome
+- `yt-dlp.exe`
+- `ffmpeg.exe` for MP4 merge and audio extraction presets
+- a local download folder
+
+The release ZIPs include the Chrome extension files and a prebuilt `ytdlp_native_host.exe`. They do not include `yt-dlp.exe` or `ffmpeg.exe`.
+
 ## Public Build Install
 
 For public releases, users should install in this order:
@@ -16,6 +28,8 @@ The Windows native host package includes a prebuilt `ytdlp_native_host.exe`. Rel
 If the release has a published Chrome Web Store extension ID embedded, users do not need to copy an ID or run a PowerShell command manually. Source and GitHub ZIP builds prompt for the unpacked extension ID when needed.
 
 Chrome extensions cannot include and execute arbitrary local programs directly, so the native host must still be installed once on the local machine. The installer writes the native messaging manifest and user-level Chrome registry entry.
+
+After install, the extension still needs paths to `yt-dlp.exe`, `ffmpeg.exe`, and the download folder. Configure those in the extension settings page.
 
 ## Source Build Install
 
