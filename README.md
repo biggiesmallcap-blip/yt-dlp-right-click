@@ -38,6 +38,8 @@ Release assets:
 - `yt-dlp-right-click-extension-v1.0.0.zip`
 - `yt-dlp-right-click-native-host-windows-v1.0.0.zip`
 
+The native host ZIP includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or a local build step.
+
 ## Presets
 
 | Group | Presets |
@@ -54,12 +56,16 @@ Playlists are only enabled from explicit playlist menu items. Normal video/audio
 These steps target Google Chrome on Windows.
 
 1. Install or unpack the Chrome extension.
-2. Install the Windows native host package.
-3. Open the extension settings page.
-4. Set paths for `yt-dlp.exe`, `ffmpeg.exe`, and your download folder.
-5. Click `Test native host and settings`.
+2. Download and unzip `yt-dlp-right-click-native-host-windows-v1.0.0.zip`.
+3. Double-click `install-native-host.cmd`.
+4. Paste the extension ID if prompted.
+5. Open the extension settings page.
+6. Set paths for `yt-dlp.exe`, `ffmpeg.exe`, and your download folder.
+7. Click `Test native host and settings`.
 
-For source builds:
+Chrome extensions cannot ship or launch native executables by themselves, so the native host still has to be installed once on the local machine. It does not have to be built by the user.
+
+For development from source:
 
 ```powershell
 cd native-host
@@ -69,6 +75,15 @@ cd ..
 ```
 
 See [docs/INSTALL.md](docs/INSTALL.md) for full setup and troubleshooting.
+
+## Requirements
+
+- Windows
+- Google Chrome
+- `yt-dlp.exe`
+- `ffmpeg.exe` for video merge and audio extraction presets
+
+The extension package provides the browser UI. The native host package provides the prebuilt local bridge between Chrome and `yt-dlp`.
 
 ## Security Model
 

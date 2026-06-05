@@ -11,11 +11,15 @@ For public releases, users should install in this order:
 3. Double-click `install-native-host.cmd`.
 4. Open the extension Settings page and click `Test native host and settings`.
 
+The Windows native host package includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or `cargo build`.
+
 If the release has a published Chrome Web Store extension ID embedded, users do not need to copy an ID or run a PowerShell command manually. Source and GitHub ZIP builds prompt for the unpacked extension ID when needed.
+
+Chrome extensions cannot include and execute arbitrary local programs directly, so the native host must still be installed once on the local machine. The installer writes the native messaging manifest and user-level Chrome registry entry.
 
 ## Source Build Install
 
-These steps are for development or unpacked source builds.
+These steps are only for development or unpacked source builds. Use the public native host ZIP if you just want to install the release.
 
 ### 1. Build the Native Host
 
