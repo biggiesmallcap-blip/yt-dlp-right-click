@@ -37,9 +37,21 @@
 - A failed conversion (for example MP3 extraction) could be reported as "complete" because the leftover intermediate file was taken as the result. Only files yt-dlp confirms as final now count.
 - Two yt-dlp self-updates could run at once (install, settings migration, and the alarm firing together); updates are now serialised and downloads wait for an update in progress.
 - When yt-dlp is too old for the options used, the job now says to update it instead of only showing "no such option".
+- Instagram posts in Auto cookie mode failed outright when the browser's cookies could not be read; they now retry without cookies.
+- Right-clicking an image on a known media site (X, Reddit, Instagram) sent the page instead of the image, so photos failed to download.
+- Temp-file cleanup after one download could delete a concurrent download's partial files when its title started with the same text ("Episode 1" vs "Episode 10").
+- Closing the browser or reloading the extension left yt-dlp running invisibly with no log or cancel; the host now stops it, and Retry resumes from the partial file.
+- Cancelling a download that was waiting for a yt-dlp update did not stop it from starting.
+- The popup kept reporting "native host not installed" for up to 10 minutes after it was fixed.
+- Failed automatic updates no longer pile up as entries in the downloads list; the popup shows one notice instead. "Update now" during downloads no longer reports a failure.
+- Live progress is stored separately from the job list, so it no longer rewrites every job's history twice a second.
+- Popup and settings changes are saved through the service worker, so they cannot overwrite each other.
+- Download folders deep enough to exceed the Windows path limit keep working through the `\\?\` form.
 
 ### Security
 
+- yt-dlp now runs with `--ignore-config`. Previously a download could save a file named `yt-dlp.conf` into the output folder, which yt-dlp then loaded as configuration for later jobs, so a malicious link could plant options such as `--exec` (present since 1.0.0).
+- Titles and file paths are printed as JSON, so a multi-line title cannot forge the host's progress or file markers.
 - URLs are passed after `--`, so nothing in a URL can be parsed as a yt-dlp option.
 - Cookie browser, update channel, and runtime names are allowlisted in the host; cookies.txt must be an absolute path to an existing, reasonably sized file.
 - Instagram presets verify the host is instagram.com before running.

@@ -306,6 +306,7 @@ struct CleanupReport {
 #[derive(Debug, Default)]
 struct JobControl {
     cancelled: AtomicBool,
+    disconnected: AtomicBool,
     pid: AtomicU32,
 }
 
@@ -413,12 +414,34 @@ fn handle_start(message: IncomingMessage, outbox: &Outbox) -> Result<(), String>
         outbox,
         &control,
     )?;
-    let mut cookies_used = cookies_first;
+    let mut cookie_hint = if cookies_first {
+        cookie_failure_hint(&result.output, &plan.cookie_source)
+    } else {
+        None
+    };
+    let is_cancelled = || control.cancelled.load(Ordering::SeqCst);
 
     if plan.cookie_mode == CookieMode::Auto
+        && cookies_first
+        && !plan.preset.requires_cookies
+        && !result.success
+        && !is_cancelled()
+        && cookie_read_failed(&result.output)
+    {
+        // Presets that prefer cookies (Instagram posts) often work without
+        // them, so an unreadable cookie store should not fail public items.
+        let line = format!(
+            "Could not read {}; retrying without cookies.",
+            cookie_source_label(&plan.cookie_source)
+        );
+        outbox.output(&job_id, "hint", line.clone());
+        append_host_log(&plan.log_path, &line);
+
+        result = run_ytdlp_attempt(&job_id, &plan, &plan.args(false), false, outbox, &control)?;
+    } else if plan.cookie_mode == CookieMode::Auto
         && !cookies_first
         && !result.success
-        && !control.cancelled.load(Ordering::SeqCst)
+        && !is_cancelled()
         && output_suggests_cookies(&result.output)
     {
         let line = format!(
@@ -429,18 +452,23 @@ fn handle_start(message: IncomingMessage, outbox: &Outbox) -> Result<(), String>
         append_host_log(&plan.log_path, &line);
 
         result = run_ytdlp_attempt(&job_id, &plan, &plan.args(true), true, outbox, &control)?;
-        cookies_used = true;
+        cookie_hint = cookie_failure_hint(&result.output, &plan.cookie_source);
     }
 
-    let cancelled = control.cancelled.load(Ordering::SeqCst);
+    // A cancel that lands after yt-dlp already exited cleanly changes nothing.
+    let cancelled = is_cancelled() && !result.success;
     if cancelled {
-        let line = "Cancelled. Partial .part files are kept so a retry can resume.".to_string();
-        outbox.output(&job_id, "hint", line.clone());
-        append_host_log(&plan.log_path, &line);
+        let line = if control.disconnected.load(Ordering::SeqCst) {
+            "Chrome disconnected (browser closed or extension reloaded), so the download was stopped. Partial .part files are kept so Resume can continue."
+        } else {
+            "Cancelled. Partial .part files are kept so a retry can resume."
+        };
+        outbox.output(&job_id, "hint", line.to_string());
+        append_host_log(&plan.log_path, line);
     }
 
-    if cookies_used && !result.success && !cancelled {
-        if let Some(hint) = cookie_failure_hint(&result.output, &plan.cookie_source) {
+    if !result.success && !cancelled {
+        if let Some(hint) = cookie_hint {
             outbox.output(&job_id, "hint", hint.clone());
             append_host_log(&plan.log_path, &hint);
         }
@@ -460,7 +488,7 @@ fn handle_start(message: IncomingMessage, outbox: &Outbox) -> Result<(), String>
     let confirmed = result
         .output
         .iter()
-        .any(|line| line.starts_with(FILE_MARKER));
+        .any(|line| marker_value(line, FILE_MARKER).is_some());
     if !result.success && !cancelled && confirmed && !files.is_empty() {
         let line = format!(
             "yt-dlp returned exit {}, but {} output file(s) exist. Marking complete with warnings.",
@@ -530,20 +558,27 @@ fn handle_start(message: IncomingMessage, outbox: &Outbox) -> Result<(), String>
 }
 
 /// Reads follow-up messages (currently only `cancel`) on the open port while a
-/// job runs. EOF just ends the listener: if Chrome closes, the download keeps
-/// going and still writes its log.
+/// job runs. EOF means Chrome closed the port (browser exit or extension
+/// reload). Chrome terminates the host shortly after that, which would orphan
+/// yt-dlp with nobody reading its output, so stop the job deliberately instead.
 fn spawn_control_listener(control: Arc<JobControl>) {
     thread::spawn(move || loop {
-        match read_message() {
-            Ok(Some(message)) if message.message_type == "cancel" => {
-                control.cancelled.store(true, Ordering::SeqCst);
-                let pid = control.pid.load(Ordering::SeqCst);
-                if pid != 0 {
-                    kill_process_tree(pid);
-                }
+        let stop = match read_message() {
+            Ok(Some(message)) => message.message_type == "cancel",
+            Ok(None) | Err(_) => {
+                control.disconnected.store(true, Ordering::SeqCst);
+                true
             }
-            Ok(Some(_)) => {}
-            Ok(None) | Err(_) => break,
+        };
+        if stop {
+            control.cancelled.store(true, Ordering::SeqCst);
+            let pid = control.pid.load(Ordering::SeqCst);
+            if pid != 0 {
+                kill_process_tree(pid);
+            }
+        }
+        if control.disconnected.load(Ordering::SeqCst) {
+            break;
         }
     });
 }
@@ -714,6 +749,15 @@ fn run_ytdlp_attempt(
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 
+    // Open the log before spawning: failing after spawn would leave yt-dlp
+    // running with nobody draining its pipes.
+    let log_file = Arc::new(Mutex::new(
+        OpenOptions::new()
+            .append(true)
+            .open(&plan.log_path)
+            .map_err(|error| format!("Failed to reopen log file: {error}"))?,
+    ));
+
     let mut child = command
         .spawn()
         .map_err(|error| format!("Failed to start yt-dlp: {error}"))?;
@@ -733,12 +777,6 @@ fn run_ytdlp_attempt(
         cookies_used,
     });
 
-    let log_file = Arc::new(Mutex::new(
-        OpenOptions::new()
-            .append(true)
-            .open(&plan.log_path)
-            .map_err(|error| format!("Failed to reopen log file: {error}"))?,
-    ));
     let collected_output = Arc::new(Mutex::new(Vec::new()));
 
     let readers: Vec<_> = [
@@ -837,16 +875,16 @@ fn spawn_reader_thread(
                         }
                     }
 
-                    if let Some(title) = line.strip_prefix(TITLE_MARKER) {
+                    if let Some(title) = marker_value(&line, TITLE_MARKER) {
                         outbox.send(&MetaResponse {
                             message_type: "meta",
                             job_id: &job_id,
-                            title: title.trim().to_string(),
+                            title: title.split_whitespace().collect::<Vec<_>>().join(" "),
                         });
                         continue;
                     }
 
-                    if let Some(path) = line.strip_prefix(FILE_MARKER) {
+                    if let Some(path) = marker_value(&line, FILE_MARKER) {
                         outbox.output(&job_id, "file", strip_verbatim_prefix(path.trim()));
                         continue;
                     }
@@ -940,6 +978,10 @@ fn build_start_plan(message: &IncomingMessage, job_id: &str) -> Result<StartPlan
     let yt_dlp_path = resolve_yt_dlp_path(&message.settings.yt_dlp_path)?;
 
     let mut options = vec![
+        // yt-dlp loads <-P home>/yt-dlp.conf, and a download can create a file
+        // with that name, so a malicious link could plant options (including
+        // --exec) for later jobs. Every option here is fixed anyway.
+        "--ignore-config".to_string(),
         "--no-quiet".to_string(),
         "--no-simulate".to_string(),
         "--windows-filenames".to_string(),
@@ -953,13 +995,15 @@ fn build_start_plan(message: &IncomingMessage, job_id: &str) -> Result<StartPlan
         "--progress-template".to_string(),
         PROGRESS_TEMPLATE.to_string(),
         "-P".to_string(),
-        display_path(&target_dir),
+        tool_path(&target_dir),
         "-o".to_string(),
         preset.output_template.to_string(),
+        // `j` prints JSON strings, so multi-line titles stay on one line and
+        // cannot forge marker lines.
         "--print".to_string(),
-        format!("video:{TITLE_MARKER}%(title)s"),
+        format!("video:{TITLE_MARKER}%(title)j"),
         "--print".to_string(),
-        format!("after_move:{FILE_MARKER}%(filepath)s"),
+        format!("after_move:{FILE_MARKER}%(filepath)j"),
     ];
 
     options.push(if preset.playlist {
@@ -971,7 +1015,7 @@ fn build_start_plan(message: &IncomingMessage, job_id: &str) -> Result<StartPlan
     if let Some(archive_name) = preset.archive_name {
         let archive_dir = ensure_output_subdir(&download_root, ARCHIVE_DIR_NAME)?;
         options.push("--download-archive".to_string());
-        options.push(display_path(&archive_dir.join(archive_name)));
+        options.push(tool_path(&archive_dir.join(archive_name)));
     }
 
     if preset.requires_ffmpeg {
@@ -1398,21 +1442,26 @@ fn output_suggests_old_yt_dlp(output: &[String]) -> bool {
     })
 }
 
-fn cookie_failure_hint(output: &[String], source: &CookieSource) -> Option<String> {
+/// True when yt-dlp could not load cookies at all (as opposed to cookies
+/// loading fine but the site still refusing).
+fn cookie_read_failed(output: &[String]) -> bool {
     let combined = output.join("\n").to_ascii_lowercase();
-    let browser_read_failed = [
+    [
         "failed to decrypt with dpapi",
         "could not copy chrome cookie database",
         "app-bound",
         "could not find chrome cookies database",
         "could not find firefox cookies database",
+        "cookies database",
         "permission denied",
     ]
     .iter()
-    .any(|needle| combined.contains(needle));
+    .any(|needle| combined.contains(needle))
+}
 
+fn cookie_failure_hint(output: &[String], source: &CookieSource) -> Option<String> {
     match source {
-        CookieSource::Browser(browser) if browser_read_failed => Some(format!(
+        CookieSource::Browser(browser) if cookie_read_failed(output) => Some(format!(
             "yt-dlp could not read {browser} cookies. Chromium browsers on Windows now lock/encrypt them. Fix: export a cookies.txt file (Settings > Cookies) or switch the cookie browser to Firefox."
         )),
         CookieSource::File(_) if output_suggests_cookies(output) => Some(
@@ -1432,9 +1481,9 @@ fn final_output_paths_since(
         return Vec::new();
     };
 
-    let marked: Vec<&str> = output
+    let marked: Vec<String> = output
         .iter()
-        .filter_map(|line| line.strip_prefix(FILE_MARKER))
+        .filter_map(|line| marker_value(line, FILE_MARKER))
         .collect();
 
     let candidates: Vec<PathBuf> = if marked.is_empty() {
@@ -1516,7 +1565,9 @@ fn cleanup_ytdlp_temp_files(
         let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
-        if !file_name.starts_with(final_stem) || !is_ytdlp_temp_artifact(file_name) {
+        // Require the "." after the stem: "Episode 1" must not match a
+        // concurrent job's "Episode 10.f137.mp4.part".
+        if !file_name.starts_with(&format!("{final_stem}.")) || !is_ytdlp_temp_artifact(file_name) {
             continue;
         }
 
@@ -1620,9 +1671,17 @@ fn file_was_written_since(path: &Path, since: SystemTime) -> bool {
         .unwrap_or(false)
 }
 
+/// Decodes a `[ytdlp-rc:...]` marker line. Values are printed with yt-dlp's
+/// `j` (JSON) conversion so a title containing newlines cannot forge a second
+/// marker line; anything that is not one well-formed JSON string is rejected.
+fn marker_value(line: &str, marker: &str) -> Option<String> {
+    let raw = line.strip_prefix(marker)?;
+    serde_json::from_str::<String>(raw.trim()).ok()
+}
+
 fn output_path_from_line(line: &str) -> Option<PathBuf> {
-    if let Some(value) = line.strip_prefix(FILE_MARKER) {
-        return absolute_output_path_from_value(value);
+    if line.starts_with(FILE_MARKER) {
+        return absolute_output_path_from_value(&marker_value(line, FILE_MARKER)?);
     }
 
     if let Some(path) = absolute_output_path_from_value(line) {
@@ -1770,6 +1829,19 @@ fn strip_verbatim_prefix(value: &str) -> String {
 
 fn display_path(path: &Path) -> String {
     strip_verbatim_prefix(&path.display().to_string())
+}
+
+/// Path form for arguments handed to yt-dlp. Short paths use the plain form so
+/// output and logs stay readable; deep folders keep the `\\?\` form, which lets
+/// yt-dlp and ffmpeg exceed MAX_PATH even without the LongPathsEnabled policy.
+fn tool_path(path: &Path) -> String {
+    const PLAIN_PATH_LIMIT: usize = 200;
+    let plain = display_path(path);
+    if plain.chars().count() < PLAIN_PATH_LIMIT {
+        plain
+    } else {
+        path.display().to_string()
+    }
 }
 
 fn truncate_output_line(value: String) -> String {
@@ -2214,6 +2286,14 @@ fn unix_seconds() -> u64 {
 mod tests {
     use super::*;
 
+    /// A file marker line exactly as yt-dlp prints it with `%(filepath)j`.
+    fn marked(path: &Path) -> String {
+        format!(
+            "{FILE_MARKER}{}",
+            serde_json::to_string(&path.display().to_string()).unwrap()
+        )
+    }
+
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "ytdlp-host-{name}-{}-{}",
@@ -2403,6 +2483,9 @@ mod tests {
         assert!(!plain.contains(&"--cookies-from-browser".to_string()));
         assert!(plain.contains(&"--embed-thumbnail".to_string()));
         assert!(plain.contains(&"--no-playlist".to_string()));
+        assert_eq!(plain[0], "--ignore-config");
+        assert!(plain.iter().any(|arg| arg.ends_with("%(title)j")));
+        assert!(plain.iter().any(|arg| arg.ends_with("%(filepath)j")));
 
         let with_cookies = plan.args(true);
         let index = with_cookies
@@ -2536,6 +2619,24 @@ mod tests {
         assert!(!output_suggests_old_yt_dlp(&[
             "ERROR: Unsupported URL".to_string()
         ]));
+    }
+
+    #[test]
+    fn detects_unreadable_cookie_stores() {
+        assert!(cookie_read_failed(&[
+            "ERROR: Failed to decrypt with DPAPI. See https://github.com/yt-dlp/yt-dlp/issues/10927".to_string()
+        ]));
+        assert!(!cookie_read_failed(&[
+            "ERROR: Sign in to confirm you are not a bot".to_string()
+        ]));
+    }
+
+    #[test]
+    fn long_tool_paths_keep_extended_prefix() {
+        let short = PathBuf::from(r"\\?\F:\YT-DLP\DJ\Audio");
+        assert_eq!(tool_path(&short), r"F:\YT-DLP\DJ\Audio");
+        let long = PathBuf::from(format!(r"\\?\F:\{}\Audio", "d".repeat(220)));
+        assert!(tool_path(&long).starts_with(r"\\?\F:\"));
     }
 
     #[test]
@@ -2678,10 +2779,13 @@ mod tests {
                 "[download] Destination: {}",
                 root.join("One.webm").display()
             ),
-            format!("{FILE_MARKER}{}", first.display()),
-            format!("{FILE_MARKER}{}", second.display()),
-            format!("{FILE_MARKER}{}", second.display()),
+            marked(&first),
+            marked(&second),
+            marked(&second),
+            // Raw (non-JSON) marker lines are ignored.
+            format!("{FILE_MARKER}{}", root.join("Spoofed.mp3").display()),
         ];
+        File::create(root.join("Spoofed.mp3")).unwrap();
         let files = final_output_paths_since(&output, UNIX_EPOCH, &root);
         assert_eq!(
             files,
@@ -2729,7 +2833,27 @@ mod tests {
             None
         );
         assert_eq!(
-            output_path_from_line(&format!("{FILE_MARKER}Relative Song.mp3")),
+            output_path_from_line(&marked(Path::new("Relative Song.mp3"))),
+            None
+        );
+    }
+
+    #[test]
+    fn marker_values_must_be_single_json_strings() {
+        assert_eq!(
+            marker_value(r#"[ytdlp-rc:title]"Line one\nLine two""#, TITLE_MARKER).as_deref(),
+            Some("Line one\nLine two")
+        );
+        assert_eq!(
+            marker_value("[ytdlp-rc:title]plain title", TITLE_MARKER),
+            None
+        );
+        assert_eq!(
+            marker_value(r#"[ytdlp-rc:title]"a" "b""#, TITLE_MARKER),
+            None
+        );
+        assert_eq!(
+            marker_value(r#"prefix [ytdlp-rc:file]"C:\\x""#, FILE_MARKER),
             None
         );
     }
@@ -2741,7 +2865,7 @@ mod tests {
         let file = outside.join("Outside Song.mp3");
         File::create(&file).unwrap();
 
-        let output = vec![format!("{FILE_MARKER}{}", file.display())];
+        let output = vec![marked(&file)];
         assert!(final_output_paths_since(&output, UNIX_EPOCH, &root).is_empty());
 
         fs::remove_dir_all(root).unwrap();
@@ -2814,6 +2938,8 @@ mod tests {
         let matching_fragment = root.join("Final Song.f251.webm.part-Frag12");
         let matching_ytdl = root.join("Final Song.ytdl");
         let unrelated_part = root.join("Other Song.mp4.part");
+        // Another job whose title merely starts with the same text.
+        let similar_title_part = root.join("Final Song 2.f137.mp4.part");
         let normal_file = root.join("Final Song Notes.txt");
 
         for path in [
@@ -2822,6 +2948,7 @@ mod tests {
             &matching_fragment,
             &matching_ytdl,
             &unrelated_part,
+            &similar_title_part,
             &normal_file,
         ] {
             File::create(path).unwrap();
@@ -2835,6 +2962,7 @@ mod tests {
         assert!(!matching_fragment.exists());
         assert!(!matching_ytdl.exists());
         assert!(unrelated_part.exists());
+        assert!(similar_title_part.exists());
         assert!(normal_file.exists());
 
         fs::remove_dir_all(root).unwrap();

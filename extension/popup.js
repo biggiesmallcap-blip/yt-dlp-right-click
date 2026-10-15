@@ -29,6 +29,8 @@ const tabTarget = $("tab-target");
 
 let settings = normalizeSettings({});
 let jobs = [];
+let progressById = {};
+let lastUpdateResult = null;
 let activeTab = null;
 let hostInfo = null;
 let extensionUpdate = null;
@@ -41,10 +43,18 @@ async function init() {
   $("version").textContent = `v${chrome.runtime.getManifest().version}`;
   renderPresetOptions();
 
-  const stored = await chrome.storage.local.get({ jobs: [], settings: DEFAULT_SETTINGS, extensionUpdate: null });
+  const stored = await chrome.storage.local.get({
+    jobs: [],
+    jobProgress: {},
+    settings: DEFAULT_SETTINGS,
+    extensionUpdate: null,
+    lastYtDlpUpdateResult: null
+  });
   settings = normalizeSettings(stored.settings);
   jobs = Array.isArray(stored.jobs) ? stored.jobs : [];
+  progressById = stored.jobProgress || {};
   extensionUpdate = stored.extensionUpdate;
+  lastUpdateResult = stored.lastYtDlpUpdateResult;
 
   applySettings();
   renderJobs();
@@ -66,6 +76,18 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.jobs) {
     jobs = changes.jobs.newValue || [];
     renderJobs();
+  }
+  if (changes.jobProgress) {
+    progressById = changes.jobProgress.newValue || {};
+    // Only meters change on a progress tick; leave the rest of each row alone.
+    for (const job of jobs) {
+      const node = jobNodes.get(job.id);
+      if (node) renderMeter(node.querySelector(".meter"), job);
+    }
+  }
+  if (changes.lastYtDlpUpdateResult) {
+    lastUpdateResult = changes.lastYtDlpUpdateResult.newValue;
+    renderNotices();
   }
   if (changes.settings) {
     settings = normalizeSettings(changes.settings.newValue);
@@ -93,8 +115,10 @@ jobsContainer.addEventListener("click", handleJobAction);
 noticesBox.addEventListener("click", handleNoticeAction);
 
 async function saveSettings(patch) {
-  const { settings: current } = await chrome.storage.local.get({ settings: DEFAULT_SETTINGS });
-  await chrome.storage.local.set({ settings: normalizeSettings({ ...current, ...patch }) });
+  // The service worker merges settings under its storage lock, so this cannot
+  // race with it remembering the last-used preset.
+  const response = await chrome.runtime.sendMessage({ type: "saveSettings", patch });
+  if (!response?.ok) setFlash(response?.message || "Could not save the setting.");
 }
 
 function renderPresetOptions() {
@@ -184,6 +208,16 @@ function renderNotices() {
       text: `The native host (v${hostInfo.hostVersion}) is older than the extension, so newer presets will fail. Rebuild or reinstall it.`,
       action: "settings",
       label: "How"
+    });
+  }
+
+  if (lastUpdateResult && !lastUpdateResult.ok && lastUpdateResult.source !== "manual" && settings.autoUpdateYtDlp) {
+    const lastLine = String(lastUpdateResult.output || "").trim().split("\n").pop() || "";
+    notices.push({
+      tone: "warn",
+      text: `The automatic yt-dlp update failed${lastLine ? `: ${lastLine.slice(0, 160)}` : "."}`,
+      action: "settings",
+      label: "Details"
     });
   }
 
@@ -290,7 +324,8 @@ function updateJobNode(node, job) {
     renderActions(node.querySelector(".job-actions"), job);
   }
   const output = job.output || [];
-  const logKey = [output.length, output.at(-1)?.at, job.pid, job.exitCode, job.logPath, job.cookiesUsed].join("|");
+  const last = output.at(-1);
+  const logKey = [output.length, last?.at, last?.line, job.pid, job.exitCode, job.logPath, job.cookiesUsed].join("|");
   if (node.dataset.logKey !== logKey) {
     node.dataset.logKey = logKey;
     renderLog(node.querySelector(".job-log"), job);
@@ -309,7 +344,8 @@ function renderMeter(meter, job) {
   meter.hidden = !active;
   if (!active) return;
 
-  const progress = job.progress || {};
+  const live = progressById[job.id];
+  const progress = live || {};
   const percent = Number.isFinite(progress.percent) ? progress.percent : null;
   const segments = meter.querySelector(".segments");
   const lit = percent === null ? 0 : Math.round((percent / 100) * SEGMENTS);
@@ -323,7 +359,7 @@ function renderMeter(meter, job) {
 
   const left = [];
   const right = [];
-  if (job.status === "starting" || !job.progress) {
+  if (job.status === "starting" || !live) {
     left.push("Starting");
   } else if (progress.status === "finished") {
     left.push("Converting and saving");

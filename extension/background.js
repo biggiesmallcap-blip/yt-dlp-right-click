@@ -30,6 +30,22 @@ const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const ports = new Map();
 let hostInfoCache = null;
 
+/**
+ * Live progress lives in its own small storage key instead of inside `jobs`,
+ * so twice-a-second updates do not rewrite every job's full output history.
+ * Only this worker writes it, and only jobs it started can have progress.
+ */
+const progressById = {};
+
+function setProgress(jobId, progress) {
+  if (progress) {
+    progressById[jobId] = progress;
+  } else {
+    delete progressById[jobId];
+  }
+  return chrome.storage.local.set({ jobProgress: { ...progressById } });
+}
+
 // ---------------------------------------------------------------------------
 // Storage. Every job mutation goes through one queue so concurrent native
 // messages cannot read stale state and overwrite each other.
@@ -59,6 +75,13 @@ function mutateJobs(mutator) {
 function patchJob(jobId, patch) {
   return mutateJobs((jobs) => jobs.map((job) => (
     job.id === jobId ? { ...job, ...(typeof patch === "function" ? patch(job) : patch) } : job
+  )));
+}
+
+/** Like patchJob, but leaves jobs that already finished, failed, or were cancelled alone. */
+function patchActiveJob(jobId, patch) {
+  return mutateJobs((jobs) => jobs.map((job) => (
+    job.id === jobId && ACTIVE_STATUSES.has(job.status) ? { ...job, ...patch } : job
   )));
 }
 
@@ -128,20 +151,22 @@ function runMaintenance(source) {
 
 async function markOrphanedJobs() {
   const now = new Date().toISOString();
+  await chrome.storage.local.set({ jobProgress: {} });
   await mutateJobs((jobs) => jobs.map((job) => {
     if (!ACTIVE_STATUSES.has(job.status) || ports.has(job.id)) {
       return job;
     }
+    // The native host stops yt-dlp when its port closes, so the download
+    // ended here; the partial file is kept and Retry resumes it.
     return {
       ...job,
       status: "failed",
       finishedAt: now,
-      progress: null,
       output: [
         ...(job.output || []),
         {
           stream: "error",
-          line: "Lost contact with this download (browser or extension restarted). It may still have finished; check the folder.",
+          line: "Stopped because the browser or extension restarted. Retry resumes from the partial file.",
           at: now
         }
       ].slice(-MAX_OUTPUT_LINES)
@@ -245,6 +270,8 @@ const MESSAGE_HANDLERS = {
   clearCompletedJobs: () => clearCompletedJobs(),
   updateYtDlp: () => runYtDlpUpdate("manual"),
   getHostInfo: (message) => getHostInfo(Boolean(message.force)),
+  validateSettings: () => validateSettings(),
+  saveSettings: async (message) => ({ ok: true, settings: await updateSettings(message.patch || {}) }),
   checkExtensionUpdate: () => maybeCheckExtensionUpdate(true),
   popupOpened: () => markFailuresSeen()
 };
@@ -302,7 +329,6 @@ async function startNativeJob(preset, url, settings) {
     title: "",
     status: "starting",
     output: [],
-    progress: null,
     logPath: "",
     finalPath: "",
     startedAt: now,
@@ -313,6 +339,11 @@ async function startNativeJob(preset, url, settings) {
   if (ytDlpUpdateInFlight) {
     await appendJobOutput(jobId, "Waiting for the yt-dlp update to finish...", "hint");
     await ytDlpUpdateInFlight.catch(() => {});
+    // The user may have cancelled or removed the job while it waited.
+    const job = (await readJobs()).find((item) => item.id === jobId);
+    if (!job || !ACTIVE_STATUSES.has(job.status)) {
+      return;
+    }
   }
 
   let port;
@@ -346,7 +377,7 @@ async function handleNativeMessage(jobId, message) {
 
   switch (message.type) {
     case "started":
-      await patchJob(jobId, {
+      await patchActiveJob(jobId, {
         status: "running",
         pid: Number(message.pid) || 0,
         logPath: String(message.logPath || ""),
@@ -354,10 +385,12 @@ async function handleNativeMessage(jobId, message) {
       });
       return;
     case "meta":
-      await patchJob(jobId, { title: String(message.title || "").slice(0, 300) });
+      await patchActiveJob(jobId, { title: String(message.title || "").slice(0, 300) });
       return;
     case "progress":
-      await patchJob(jobId, { progress: sanitizeProgress(message) });
+      if (ports.has(jobId)) {
+        await setProgress(jobId, sanitizeProgress(message));
+      }
       return;
     case "output":
       await appendJobOutput(jobId, String(message.line || ""), String(message.stream || "stdout"));
@@ -388,9 +421,9 @@ function sanitizeProgress(message) {
 
 async function handleFinished(jobId, message) {
   const status = message.cancelled ? "cancelled" : message.success ? "complete" : "failed";
+  await setProgress(jobId, null);
   const jobs = await patchJob(jobId, {
     status,
-    progress: null,
     exitCode: Number.isFinite(Number(message.exitCode)) ? Number(message.exitCode) : null,
     finishedAt: new Date().toISOString(),
     logPath: String(message.logPath || ""),
@@ -429,7 +462,6 @@ async function finishJobWithError(jobId, message) {
     failed = {
       ...job,
       status: "failed",
-      progress: null,
       finishedAt: now,
       output: [...(job.output || []), { stream: "error", line: message, at: now }].slice(-MAX_OUTPUT_LINES)
     };
@@ -438,6 +470,7 @@ async function finishJobWithError(jobId, message) {
   if (!failed) {
     return;
   }
+  await setProgress(jobId, null);
   await bumpUnseenFailures();
   await updateBadge();
   notifyFinished(failed).catch(() => {});
@@ -630,8 +663,16 @@ async function getHostInfo(force) {
     info.outdated = info.outdated || compareVersions(info.hostVersion, EXTENSION_VERSION) < 0 || unsupported.length > 0;
     info.extensionVersion = EXTENSION_VERSION;
   }
-  hostInfoCache = { at: Date.now(), info };
+  // Never cache failures: the user is probably about to fix the install.
+  hostInfoCache = info.ok ? { at: Date.now(), info } : null;
   return info;
+}
+
+async function validateSettings() {
+  const settings = await getSettings();
+  const response = await sendNativeMessage({ type: "validate", settings: hostSettings(settings) });
+  hostInfoCache = null;
+  return { ...response, ok: Boolean(response?.ok), responded: true };
 }
 
 async function activeJobCount() {
@@ -670,7 +711,7 @@ function runYtDlpUpdate(source) {
 
 async function runYtDlpUpdateOnce(source) {
   if (await activeJobCount() > 0) {
-    return { ok: false, exitCode: null, output: "Wait for running downloads to finish, then update." };
+    return { ok: false, busy: true, exitCode: null, output: "Downloads are running. Update again once they finish." };
   }
   const settings = await getSettings();
   await chrome.storage.local.set({ lastYtDlpUpdateAttemptAt: Date.now() });
@@ -689,13 +730,12 @@ async function runYtDlpUpdateOnce(source) {
     source,
     at: new Date().toISOString()
   };
+  // Failures surface as one popup notice driven by this result rather than
+  // as entries in the downloads list, which would pile up while offline.
   await chrome.storage.local.set({
     lastYtDlpUpdateResult: result,
     ...(result.ok ? { lastYtDlpUpdateAt: Date.now() } : {})
   });
-  if (!result.ok && source !== "manual") {
-    await recordLocalError("Automatic yt-dlp update failed", `exit ${result.exitCode ?? "unknown"}\n${result.output}`.trim());
-  }
   return result;
 }
 

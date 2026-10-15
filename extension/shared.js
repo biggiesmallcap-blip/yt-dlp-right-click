@@ -139,9 +139,13 @@ export function extractTargetUrl(info, tab) {
   // a media srcUrl is usually a blob: or a bare CDN chunk. Feed/home pages
   // ("/") are not a specific item, so those still fall through to srcUrl.
   const specificMediaPage = (url) => isHttpUrl(url) && isKnownMediaPage(url) && new URL(url).pathname !== "/";
+  // A right-clicked image is the thing the user wants; the page around it
+  // (a tweet, a Reddit post) is usually a video extractor that fails on photos.
+  const imageSrc = info?.mediaType === "image" && isHttpUrl(info?.srcUrl) ? info.srcUrl : undefined;
   const candidates = [
     info?.linkUrl,
     firstUrlFromText(info?.selectionText),
+    imageSrc,
     specificMediaPage(info?.frameUrl) ? info.frameUrl : undefined,
     specificMediaPage(pageUrl) ? pageUrl : undefined,
     info?.srcUrl,

@@ -56,6 +56,15 @@ test("extractTargetUrl prefers links, then specific media pages over blob/CDN so
     extractTargetUrl({ srcUrl: "https://scontent.cdninstagram.com/v.mp4", pageUrl: "https://www.instagram.com/" }),
     "https://scontent.cdninstagram.com/v.mp4"
   );
+  // Right-clicked photos keep the image, not the surrounding post.
+  assert.equal(
+    extractTargetUrl({ mediaType: "image", srcUrl: "https://pbs.twimg.com/media/x.jpg", pageUrl: "https://x.com/u/status/1" }),
+    "https://pbs.twimg.com/media/x.jpg"
+  );
+  assert.equal(
+    extractTargetUrl({ mediaType: "video", srcUrl: "https://video.twimg.com/x.mp4", pageUrl: "https://x.com/u/status/1" }),
+    "https://x.com/u/status/1"
+  );
   assert.equal(
     extractTargetUrl({ frameUrl: "https://www.youtube.com/embed/abc", pageUrl: "https://blog.example.com/post" }),
     "https://www.youtube.com/embed/abc"

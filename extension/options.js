@@ -1,7 +1,5 @@
 import {
   DEFAULT_SETTINGS,
-  HOST_NAME,
-  hostSettings,
   normalizeSettings,
   timeAgo
 } from "./shared.js";
@@ -44,16 +42,20 @@ form.addEventListener("input", (event) => {
 
 function scheduleSave(delay) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveSettings, delay);
+  saveTimer = setTimeout(() => saveSettings().catch(() => {}), delay);
 }
 
 async function saveSettings() {
   clearTimeout(saveTimer);
-  const { settings: current } = await chrome.storage.local.get({ settings: DEFAULT_SETTINGS });
-  const settings = normalizeSettings({ ...current, ...readForm() });
-  await chrome.storage.local.set({ settings });
+  // Merged by the service worker under its storage lock, so popup changes
+  // and the remembered preset are not overwritten.
+  const response = await chrome.runtime.sendMessage({ type: "saveSettings", patch: readForm() });
+  if (!response?.ok) {
+    showSaveState(response?.message || "Could not save settings.", false);
+    throw new Error(response?.message || "Could not save settings.");
+  }
   showSaveState("Saved", true);
-  return settings;
+  return response.settings;
 }
 
 function fillForm(settings) {
@@ -107,8 +109,11 @@ $("check").addEventListener("click", async () => {
   button.disabled = true;
   renderResult(box, "", [paragraph("Checking. This runs yt-dlp and ffmpeg once...")]);
   try {
-    const settings = await saveSettings();
-    const response = await sendNativeMessage({ type: "validate", settings: hostSettings(settings) });
+    await saveSettings();
+    const response = await chrome.runtime.sendMessage({ type: "validateSettings" });
+    if (!response?.responded) {
+      throw new Error(response?.message || "The native host did not respond.");
+    }
     const details = definitionList([
       ["Native host", response?.hostVersion ? `v${response.hostVersion}` : "v1.0.0 (outdated)"],
       ["yt-dlp", response?.ytDlpVersion || "not checked"],
@@ -141,6 +146,10 @@ $("update-ytdlp").addEventListener("click", async () => {
   try {
     await saveSettings();
     const response = await chrome.runtime.sendMessage({ type: "updateYtDlp" });
+    if (response?.busy) {
+      renderResult(box, "warn", [paragraph(response.output)]);
+      return;
+    }
     const nodes = [paragraph(response?.ok ? "yt-dlp is up to date." : `Update failed (exit ${response?.exitCode ?? "unknown"}).`)];
     if (response?.output) {
       const pre = document.createElement("pre");
@@ -231,19 +240,6 @@ document.addEventListener("click", async (event) => {
 });
 
 // Helpers -------------------------------------------------------------------
-
-function sendNativeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendNativeMessage(HOST_NAME, message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(`Could not reach the native host: ${error.message}`));
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
 
 function renderResult(box, tone, nodes) {
   box.hidden = false;

@@ -10,6 +10,9 @@ The Chrome extension can collect a URL and preset ID. It cannot decide the execu
 
 - The native host never runs through `cmd.exe`, PowerShell, or a shell string.
 - It launches `yt-dlp.exe` directly with an argument array, and passes the URL after `--` so it can never be parsed as an option.
+- yt-dlp runs with `--ignore-config`, so no `yt-dlp.conf` (including one a download might write into the output folder, which yt-dlp would otherwise load as its "home" config) can add options such as `--exec`. Personal yt-dlp config files are therefore not used by this extension.
+- Titles and file paths come back from yt-dlp JSON-encoded, so page-controlled titles cannot forge host markers.
+- Closing the browser or reloading the extension stops the job's yt-dlp process tree instead of leaving it running unattended.
 - Preset IDs are allowlisted.
 - Arbitrary custom `yt-dlp` arguments are not supported. Settings that reach the command line (cookie browser, update channel, JavaScript runtime) are checked against fixed allowlists.
 - Only `http://` and `https://` URLs are accepted.
