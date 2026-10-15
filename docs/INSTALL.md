@@ -10,12 +10,13 @@ The extension's Settings page then shows **Ready**. That's the whole install.
 
 What Setup does:
 
-- Copies the extension and the helper program to `%LOCALAPPDATA%\yt-dlp-right-click`.
-- Downloads yt-dlp, ffmpeg, and Deno into `...\tools` if they are not already on this PC, checking each against its official SHA-256 checksum.
+- Asks where to install (default `%LOCALAPPDATA%\yt-dlp-right-click`; any folder you can write to, not Program Files) and where downloads go (default `Downloads\yt-dlp`). Enter keeps the default, **B** opens a folder picker, or paste a path.
+- Copies the extension and the helper program into the install folder, and remembers the location in `HKCU\Software\yt-dlp-right-click` for updates and Uninstall.
+- Looks for yt-dlp and ffmpeg (previous install, PATH, and folders like `X:\yt-dlp` and `X:\Tools` on every drive), shows their versions, and offers to reuse them. Otherwise it offers to download them into the install folder's `tools`, checking each against its official SHA-256 checksum. Deno is offered only if neither Deno nor Node.js is installed.
 - Registers the helper for Chrome and Edge (per user, in `HKCU`).
-- Writes suggested settings (tool locations and `Downloads\yt-dlp`) that the extension picks up automatically.
+- Writes suggested settings (tool locations and download folder) that the extension picks up automatically.
 
-Options for `setup.ps1`: `-DownloadDir <folder>` to pick the download folder, `-NoDownload` to skip tool downloads, `-Yes` to answer prompts automatically.
+Options for `setup.ps1`: `-InstallDir <folder>` and `-DownloadDir <folder>` to skip those questions, `-NoDownload` to never download tools, and `-Yes` to accept every suggestion without asking.
 
 ### Updating
 

@@ -4,8 +4,12 @@
 
 ### Added
 
-- One-step install: a single `yt-dlp-right-click-v1.2.0-windows.zip` with `Setup.cmd`. Setup installs to `%LOCALAPPDATA%\yt-dlp-right-click`, downloads yt-dlp, ffmpeg, and Deno only if missing (verifying each against its official SHA-256 checksums), registers the helper for Chrome and Edge, and opens `chrome://extensions` with the folder path already on the clipboard.
-- `Uninstall.cmd` removes the helper registration and installed files; downloads are kept.
+- One-step install: a single `yt-dlp-right-click-v1.2.0-windows.zip` with `Setup.cmd`. Setup asks where to install (default `%LOCALAPPDATA%\yt-dlp-right-click`, any user-writable folder allowed) and where downloads go, with Enter keeping the default and **B** opening a folder picker. It remembers the install location for updates and Uninstall.
+- Setup finds existing yt-dlp and ffmpeg (PATH, previous install, common folders on every drive), shows their versions, and offers to reuse them, download a fresh copy, browse to another copy, or skip. Very old ffmpeg builds default to a fresh download. Downloads come from official GitHub releases and are verified against their SHA-256 checksums; Deno is only offered when neither Deno nor Node.js is installed.
+- ffmpeg downloads use the "shared" build: 85 MB download and 186 MB installed instead of 191 MB and 338 MB.
+- Registers the helper for Chrome and Edge and opens `chrome://extensions` with the folder path already on the clipboard.
+- `Uninstall.cmd` removes the helper registration and the install folder (wherever it is); downloads and tools Setup only pointed at are kept.
+- Settings has **Open download folder** and **Open install folder** buttons, and Check setup warns about very old ffmpeg builds.
 - The extension fills in empty yt-dlp, ffmpeg, and download folder settings from the helper, and opens Settings on first install.
 - Settings opens with a Status box that says "Ready" or exactly what to do next.
 

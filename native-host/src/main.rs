@@ -374,6 +374,7 @@ fn main() {
         "validate" => outbox.send(&validate_settings(&message.settings, true, true)),
         "updateYtDlp" => outbox.send(&update_yt_dlp(&message.settings)),
         "openPath" => outbox.send(&open_path(&message.settings, &message.path)),
+        "openInstallFolder" => outbox.send(&open_install_folder()),
         "start" => {
             let job_id = message.job_id.clone();
             if let Err(error) = handle_start(message, &outbox) {
@@ -1198,7 +1199,14 @@ fn validate_settings(settings: &Settings, require_ffmpeg: bool, probe: bool) -> 
     if require_ffmpeg {
         match resolve_ffmpeg_path(&settings.ffmpeg_path) {
             Ok(path) if probe => match probe_ffmpeg_version(&path) {
-                Ok(version) => ffmpeg_version = version,
+                Ok(version) => {
+                    if ffmpeg_major_version(&version).is_some_and(|major| major < 5) {
+                        warnings.push(format!(
+                            "ffmpeg {version} is very old and fails on some formats. Run Setup again and let it download a current ffmpeg."
+                        ));
+                    }
+                    ffmpeg_version = version;
+                }
                 Err(error) => warnings.push(format!("ffmpeg.exe could not be run: {error}")),
             },
             Ok(_) => {}
@@ -1247,6 +1255,36 @@ fn probe_yt_dlp_version(path: &Path) -> Result<String, String> {
         Ok(version.chars().take(64).collect())
     } else {
         Err(format!("exit {}", code.unwrap_or(-1)))
+    }
+}
+
+/// Major version of a release-style ffmpeg version string ("7.0.2-full_build",
+/// "n4.3.1-26-g..."). Nightly "N-12345-g..." builds have none.
+fn ffmpeg_major_version(version: &str) -> Option<u32> {
+    let digits: String = version
+        .strip_prefix('n')
+        .unwrap_or(version)
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
+/// Opens the folder Setup installed into. The target is fixed by where this
+/// program lives, so the extension cannot point it anywhere else.
+fn open_install_folder() -> OpenPathResponse {
+    let folder = env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
+        .filter(|folder| folder.is_dir());
+    let result = match folder {
+        Some(folder) => open_in_explorer(&folder, false),
+        None => Err("Could not find the install folder.".to_string()),
+    };
+    OpenPathResponse {
+        message_type: "openPathResult",
+        ok: result.is_ok(),
+        message: result.err().unwrap_or_else(|| "Opened folder.".to_string()),
     }
 }
 
@@ -2752,6 +2790,16 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_ffmpeg_major_versions() {
+        assert_eq!(ffmpeg_major_version("n4.3.1-26-gca55240b8c"), Some(4));
+        assert_eq!(
+            ffmpeg_major_version("7.0.2-full_build-www.gyan.dev"),
+            Some(7)
+        );
+        assert_eq!(ffmpeg_major_version("N-127541-gec33c154fa-20261014"), None);
     }
 
     #[test]

@@ -45,12 +45,21 @@ Setup is now one download and one double-click. `Setup.cmd` installs everything,
 Works on Windows with Google Chrome (or Edge). No admin rights needed.
 
 1. **Download** `yt-dlp-right-click-v<version>-windows.zip` from the [latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest) and unzip it anywhere.
-2. **Double-click `Setup.cmd`.** If Windows says "Windows protected your PC", click **More info**, then **Run anyway**. Press Enter when it offers to download yt-dlp, ffmpeg, and Deno.
+2. **Double-click `Setup.cmd`.** If Windows says "Windows protected your PC", click **More info**, then **Run anyway**. It asks a few questions; pressing **Enter** always picks the sensible answer:
+   - **Where to install** (default `%LOCALAPPDATA%\yt-dlp-right-click`, or **B** to browse, or paste any folder, such as one on another drive).
+   - **Where downloads go** (default `Downloads\yt-dlp`).
+   - **yt-dlp and ffmpeg:** if you already have them, it shows where and which version and offers to use them. Otherwise it offers to download them. You can also browse to your own copy or skip.
 3. **In the Chrome tab Setup opens:** turn on **Developer mode** (top right), click **Load unpacked**, press **Ctrl+V**, and click **Select Folder**. Setup already copied the right folder path.
 
-Done. Right-click any video and choose **yt-dlp**. The extension finds yt-dlp and ffmpeg by itself; its Settings page shows "Ready" when everything works.
+Done. Right-click any video and choose **yt-dlp**. The extension's Settings fill in by themselves and show "Ready" when everything works. Settings also has **Open download folder** and **Open install folder** buttons. The folder you unzipped can be deleted afterwards.
 
-Everything is installed to `%LOCALAPPDATA%\yt-dlp-right-click`, so the folder you unzipped can be deleted afterwards. Downloads go to `Downloads\yt-dlp` unless you change it in Settings.
+| Download | Size | Only when |
+| --- | --- | --- |
+| yt-dlp | 17 MB | you don't already have it (or choose a fresh copy) |
+| ffmpeg | 85 MB download, 186 MB installed | you don't have it, or yours is very old |
+| Deno, for YouTube | 41 MB download, 93 MB installed | you have neither Deno nor Node.js |
+
+Every download comes from the tool's official GitHub release and is checked against its published SHA-256 checksum.
 
 **Updating:** download the new zip, run its `Setup.cmd`, then click the reload arrow on the yt-dlp Right Click card in `chrome://extensions`.
 

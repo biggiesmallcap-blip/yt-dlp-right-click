@@ -140,6 +140,18 @@ $("check").addEventListener("click", async () => {
   }
 });
 
+for (const [id, type] of [["open-downloads", "openDownloadFolder"], ["open-install", "openInstallFolder"]]) {
+  $(id).addEventListener("click", async () => {
+    try {
+      await saveSettings();
+      const response = await chrome.runtime.sendMessage({ type });
+      if (!response?.ok) showSaveState(response?.message || "Could not open the folder.", false);
+    } catch (error) {
+      showSaveState(error.message || String(error), false);
+    }
+  });
+}
+
 // Updates -----------------------------------------------------------------
 
 $("update-ytdlp").addEventListener("click", async () => {

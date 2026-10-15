@@ -167,6 +167,10 @@ input[readonly] {
   padding-inline: 14px;
 }
 
+.panel-foot + .help {
+  margin-top: -6px;
+}
+
 .result {
   display: grid;
   gap: 6px;

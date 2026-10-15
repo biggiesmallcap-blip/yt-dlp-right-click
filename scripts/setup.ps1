@@ -1,16 +1,18 @@
 # One-step installer for yt-dlp Right Click (release package).
 #
-# Copies the extension and helper into a permanent folder, downloads any
-# missing tools (yt-dlp, ffmpeg, Deno) with checksum verification, registers
-# the helper with Chrome and Edge for this user, writes default settings, and
-# opens Chrome's extensions page with the folder path on the clipboard.
+# Asks where to install and where downloads go (Enter keeps the default), finds
+# or downloads yt-dlp, ffmpeg, and Deno (each download checked against its
+# official SHA-256 checksum), registers the helper with Chrome and Edge for this
+# user, writes default settings, and opens Chrome's extensions page with the
+# extension folder path on the clipboard. No administrator rights needed.
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "yt-dlp-right-click"),
+    [string]$InstallDir = "",
     [string]$DownloadDir = "",
     [switch]$NoDownload,
+    # Accept every default without asking (unattended install).
     [switch]$Yes,
     # For testing: install files and tools but leave the browser registration,
-    # clipboard, and Chrome alone.
+    # remembered install location, clipboard, and Chrome alone.
     [switch]$SkipBrowserSteps
 )
 
@@ -22,15 +24,108 @@ $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with
 # folder the extension is loaded from.
 $ExtensionId = "kndejcjfodoflkabelfaeiegiaofgjgm"
 $HostName = "com.ytdlp_right_click.native_host"
+$StateKey = "HKCU:\Software\yt-dlp-right-click"
+$DefaultInstallDir = Join-Path $env:LOCALAPPDATA "yt-dlp-right-click"
+
+$YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+$YtDlpSums = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
+$FfmpegName = "ffmpeg-master-latest-win64-gpl-shared.zip"
+$FfmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/$FfmpegName"
+$FfmpegSums = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/checksums.sha256"
+$DenoName = "deno-x86_64-pc-windows-msvc.zip"
+$DenoUrl = "https://github.com/denoland/deno/releases/latest/download/$DenoName"
+$DenoSums = "$DenoUrl.sha256sum"
 
 function Step([string]$Text) { Write-Host ""; Write-Host "==> $Text" -ForegroundColor Cyan }
 function Ok([string]$Text) { Write-Host "    $Text" -ForegroundColor Green }
 function Note([string]$Text) { Write-Host "    $Text" }
 function Warn([string]$Text) { Write-Host "    $Text" -ForegroundColor Yellow }
 
+# --- Prompts -------------------------------------------------------------------
+
+function Read-Choice([string]$Prompt, [string[]]$Allowed, [string]$Default) {
+    if ($Yes) { return $Default }
+    while ($true) {
+        $answer = (Read-Host "    $Prompt").Trim()
+        if (-not $answer) { return $Default }
+        $letter = $answer.Substring(0, 1).ToUpperInvariant()
+        if ($answer.Length -eq 1 -and $Allowed -contains $letter) { return $letter }
+        if ($Allowed -contains "PATH") { return $answer }
+        Warn "Please type one of: $($Allowed -join ', '), or press Enter."
+    }
+}
+
+function Show-FolderPicker([string]$Description, [string]$Start) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = $Description
+    $dialog.ShowNewFolderButton = $true
+    if ($Start -and (Test-Path -LiteralPath $Start)) { $dialog.SelectedPath = $Start }
+    try {
+        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
+        return $null
+    }
+    finally { $owner.Dispose() }
+}
+
+function Show-FilePicker([string]$Title, [string]$FileName) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = $Title
+    $dialog.Filter = "$FileName|$FileName"
+    try {
+        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.FileName }
+        return $null
+    }
+    finally { $owner.Dispose() }
+}
+
+# Asks for a folder: Enter keeps the default, B opens a picker, or a typed path.
+function Read-Folder([string]$Question, [string]$Default) {
+    Write-Host ""
+    Write-Host "    $Question" -ForegroundColor White
+    Note "  Enter = $Default"
+    Note "  B     = browse for a folder"
+    Note "  or paste a folder path"
+    while ($true) {
+        $answer = Read-Choice "Choice" @("B", "PATH") ""
+        if (-not $answer) { return $Default }
+        if ($answer -eq "B") {
+            $picked = Show-FolderPicker $Question $Default
+            if ($picked) { return $picked }
+            Warn "No folder picked."
+            continue
+        }
+        $path = $answer.Trim('"', ' ')
+        if ([IO.Path]::IsPathRooted($path) -and $path -match '^[A-Za-z]:\\|^\\\\') { return $path }
+        Warn "That doesn't look like a full folder path (for example D:\Videos)."
+    }
+}
+
+# --- Tools ---------------------------------------------------------------------
+
 function Find-OnPath([string]$Name) {
     $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
+    return $null
+}
+
+function Get-FixedDrives {
+    [IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq "Fixed" -and $_.IsReady } | ForEach-Object { $_.RootDirectory.FullName }
+}
+
+function Get-FirstLine([string]$Exe, [string]$Argument) {
+    try {
+        $line = & $Exe $Argument 2>$null | Select-Object -First 1
+        return [string]$line
+    }
+    catch { return "" }
+}
+
+function Get-FfmpegMajor([string]$VersionLine) {
+    if ($VersionLine -match 'version n?(\d+)\.') { return [int]$Matches[1] }
     return $null
 }
 
@@ -68,8 +163,9 @@ function Expand-Tool([string]$Zip, [string[]]$ExeNames, [string]$TargetDir) {
         Expand-Archive -LiteralPath $Zip -DestinationPath $temp -Force
         $exe = Get-ChildItem -LiteralPath $temp -Recurse -Filter $ExeNames[0] | Select-Object -First 1
         if (-not $exe) { throw "$($ExeNames[0]) was not found in the download." }
+        if (Test-Path -LiteralPath $TargetDir) { Remove-Item -LiteralPath $TargetDir -Recurse -Force }
         New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
-        # Only the named programs and any DLLs they need (skips ffplay etc.).
+        # Only the named programs and the DLLs they need (skips ffplay etc.).
         Get-ChildItem -LiteralPath $exe.DirectoryName -File |
             Where-Object { $_.Name -in $ExeNames -or $_.Extension -eq ".dll" } |
             Copy-Item -Destination $TargetDir -Force
@@ -77,6 +173,45 @@ function Expand-Tool([string]$Zip, [string[]]$ExeNames, [string]$TargetDir) {
     finally {
         Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
+    }
+}
+
+<#
+  Shows what was found for one tool and asks what to do.
+  Returns "use", "download", "skip", or a path picked with Browse.
+#>
+function Read-ToolChoice([string]$Label, [string]$Found, [string]$Detail, [bool]$PreferDownload, [string]$Size, [string]$ExeName) {
+    Write-Host ""
+    Write-Host "    $Label" -ForegroundColor White
+    if ($Found) {
+        Note "  Found: $Found$(if ($Detail) { "  ($Detail)" })"
+        if ($PreferDownload) {
+            Note "  Enter = download a fresh copy ($Size)   U = use the one found   B = browse   S = skip"
+            $default = "D"; $allowed = @("U", "D", "B", "S")
+        }
+        else {
+            Note "  Enter = use it   D = download a fresh copy ($Size)   B = browse   S = skip"
+            $default = "U"; $allowed = @("U", "D", "B", "S")
+        }
+    }
+    else {
+        Note "  Not found on this PC."
+        Note "  Enter = download it ($Size)   B = browse to your own copy   S = skip"
+        $default = "D"; $allowed = @("D", "B", "S")
+    }
+    if ($NoDownload -and $default -eq "D") { $default = if ($Found) { "U" } else { "S" } }
+
+    while ($true) {
+        switch (Read-Choice "Choice" $allowed $default) {
+            "U" { return "use" }
+            "D" { return "download" }
+            "S" { return "skip" }
+            "B" {
+                $picked = Show-FilePicker "Find $ExeName" $ExeName
+                if ($picked) { return $picked }
+                Warn "Nothing picked."
+            }
+        }
     }
 }
 
@@ -100,49 +235,78 @@ if (-not (Test-Path -LiteralPath (Join-Path $SourceExtension "manifest.json")) -
     throw "Run Setup.cmd from inside the unzipped yt-dlp Right Click folder (it needs the 'extension' and 'host' folders next to it)."
 }
 
+Write-Host "yt-dlp Right Click setup" -ForegroundColor White
+Note "Installs for your Windows user only. No administrator rights needed."
+Note "Press Enter at any question to keep the suggested answer."
+
+# --- 1. Where to install ----------------------------------------------------------
+$previousInstall = ""
+if (Test-Path $StateKey) { $previousInstall = [string](Get-Item $StateKey).GetValue("InstallDir") }
+if (-not $InstallDir) {
+    $suggested = if ($previousInstall) { $previousInstall } else { $DefaultInstallDir }
+    $InstallDir = Read-Folder "Where should yt-dlp Right Click be installed? (about 1 MB, plus any tools it downloads)" $suggested
+}
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+foreach ($protected in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:SystemRoot)) {
+    if ($protected -and $InstallDir.StartsWith($protected, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$protected needs administrator rights. Pick a folder you own, like the default or a folder on another drive."
+    }
+}
+
 $ExtensionDir = Join-Path $InstallDir "extension"
 $HostDir = Join-Path $InstallDir "host"
 $ToolsDir = Join-Path $InstallDir "tools"
 $HostExe = Join-Path $HostDir "ytdlp_native_host.exe"
 $ConfigPath = Join-Path $HostDir "config.json"
 
-Write-Host "yt-dlp Right Click setup" -ForegroundColor White
-Note "Installs for your Windows user only. No administrator rights needed."
-
-# --- 1. Copy files -----------------------------------------------------------
-Step "Installing to $InstallDir"
-Get-Process ytdlp_native_host -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } |
-    Stop-Process -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $InstallDir, $HostDir, $ToolsDir | Out-Null
-
-$sameFolder = [IO.Path]::GetFullPath($SourceExtension).TrimEnd('\') -ieq [IO.Path]::GetFullPath($ExtensionDir).TrimEnd('\')
-if (-not $sameFolder) {
-    if (Test-Path -LiteralPath $ExtensionDir) { Remove-Item -LiteralPath $ExtensionDir -Recurse -Force }
-    Copy-Item -LiteralPath $SourceExtension -Destination $ExtensionDir -Recurse
-    Copy-Item -LiteralPath $SourceHost -Destination $HostExe -Force
-}
-Get-ChildItem -LiteralPath $InstallDir -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
-Ok "Extension and helper program copied."
-
-# --- 2. Tools ----------------------------------------------------------------
-Step "Checking for yt-dlp, ffmpeg, and a JavaScript runtime"
 $previous = @{}
-if (Test-Path -LiteralPath $ConfigPath) {
-    try { $previous = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json } catch { $previous = @{} }
+foreach ($configFile in @($ConfigPath, $(if ($previousInstall) { Join-Path $previousInstall "host\config.json" }))) {
+    if ($configFile -and (Test-Path -LiteralPath $configFile)) {
+        try { $previous = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json; break } catch { }
+    }
 }
 
-# yt-dlp: prefer our own standalone copy, which the extension can keep updated.
-$YtDlp = Join-Path $ToolsDir "yt-dlp.exe"
-$needYtDlp = -not (Test-Path -LiteralPath $YtDlp)
-
-$Ffmpeg = Join-Path $ToolsDir "ffmpeg\bin\ffmpeg.exe"
-if (-not (Test-Path -LiteralPath $Ffmpeg)) {
-    $found = Find-OnPath "ffmpeg.exe"
-    if ($found) { $Ffmpeg = $found }
+# --- 2. Where downloads go ----------------------------------------------------------
+if (-not $DownloadDir) {
+    $suggested = if ($previous.downloadDir) { [string]$previous.downloadDir } else { Join-Path $env:USERPROFILE "Downloads\yt-dlp" }
+    $DownloadDir = Read-Folder "Where should your downloaded videos and music be saved?" $suggested
 }
-$needFfmpeg = -not (Test-Path -LiteralPath $Ffmpeg)
 
+# --- 3. Tools ---------------------------------------------------------------------
+Step "Looking for yt-dlp, ffmpeg, and a JavaScript runtime"
+$drives = @(Get-FixedDrives)
+
+# yt-dlp
+$ytCandidates = @((Join-Path $ToolsDir "yt-dlp.exe"), [string]$previous.ytDlpPath, (Find-OnPath "yt-dlp.exe"))
+$ytCandidates += $drives | ForEach-Object { Join-Path $_ "yt-dlp\yt-dlp.exe"; Join-Path $_ "Tools\yt-dlp\yt-dlp.exe"; Join-Path $_ "Tools\yt-dlp.exe" }
+$ytFound = $ytCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+$ytDetail = ""; $ytManaged = $false
+if ($ytFound) {
+    $ytDetail = "version " + (Get-FirstLine $ytFound "--version")
+    if ($ytFound -match '\\WinGet\\|\\scoop\\|\\Scripts\\|\\pipx\\|\\chocolatey\\') {
+        $ytManaged = $true
+        $ytDetail += ", managed by a package manager, so automatic updates can't update it"
+    }
+}
+$ytChoice = Read-ToolChoice "yt-dlp (does the downloading)" $ytFound $ytDetail $ytManaged "17 MB" "yt-dlp.exe"
+
+# ffmpeg: prefer a modern copy if several exist.
+$ffCandidates = @((Join-Path $ToolsDir "ffmpeg\bin\ffmpeg.exe"), [string]$previous.ffmpegPath, (Find-OnPath "ffmpeg.exe"))
+$ffCandidates += $drives | ForEach-Object { Join-Path $_ "ffmpeg\bin\ffmpeg.exe"; Join-Path $_ "Tools\ffmpeg\bin\ffmpeg.exe"; Join-Path $_ "yt-dlp\ffmpeg.exe" }
+$ffFound = ""; $ffDetail = ""; $ffOld = $false
+foreach ($candidate in ($ffCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -Unique)) {
+    $line = Get-FirstLine $candidate "-version"
+    $major = Get-FfmpegMajor $line
+    $isOld = $null -ne $major -and $major -lt 5
+    if (-not $ffFound -or ($ffOld -and -not $isOld)) {
+        $ffFound = $candidate; $ffOld = $isOld
+        $ffDetail = ($line -replace '^ffmpeg version (\S+).*$', 'version $1')
+        if ($isOld) { $ffDetail += ", very old and fails on some formats" }
+    }
+}
+$ffChoice = Read-ToolChoice "ffmpeg (joins video and audio, converts to MP3)" $ffFound $ffDetail $ffOld "85 MB download, 186 MB installed" "ffmpeg.exe"
+
+# JavaScript runtime: only asked about when none is installed.
 $runtime = @("deno.exe", "node.exe") | ForEach-Object { Find-OnPath $_ } | Where-Object { $_ } | Select-Object -First 1
 if (-not $runtime) {
     $runtime = @(
@@ -151,76 +315,80 @@ if (-not $runtime) {
         (Join-Path $env:ProgramFiles "nodejs\node.exe")
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
-$needRuntime = -not $runtime
-
-if (-not $needYtDlp) { Ok "yt-dlp: $YtDlp" }
-if (-not $needFfmpeg) { Ok "ffmpeg: $Ffmpeg" }
-if (-not $needRuntime) { Ok "JavaScript runtime: $runtime" }
-
-$missing = @()
-if ($needYtDlp) { $missing += "yt-dlp (about 18 MB)" }
-if ($needFfmpeg) { $missing += "ffmpeg (about 200 MB)" }
-if ($needRuntime) { $missing += "Deno, needed for YouTube (about 45 MB)" }
-
-if ($missing.Count -gt 0) {
-    Note ""
-    Note "Missing: $($missing -join ', ')."
-    $download = -not $NoDownload
-    if ($download -and -not $Yes) {
-        $answer = Read-Host "    Download them now from their official GitHub releases? [Y/n]"
-        $download = $answer -notmatch '^\s*n'
-    }
-
-    if ($download) {
-        if ($needYtDlp) {
-            Note "Downloading yt-dlp..."
-            Save-Verified "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
-                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS" "yt-dlp.exe" $YtDlp
-            Ok "yt-dlp installed and verified."
-        }
-        if ($needFfmpeg) {
-            Note "Downloading ffmpeg (this is the big one)..."
-            $zip = Join-Path $ToolsDir "ffmpeg.zip"
-            Save-Verified "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" `
-                "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/checksums.sha256" "ffmpeg-master-latest-win64-gpl.zip" $zip
-            Expand-Tool $zip @("ffmpeg.exe", "ffprobe.exe") (Join-Path $ToolsDir "ffmpeg\bin")
-            $Ffmpeg = Join-Path $ToolsDir "ffmpeg\bin\ffmpeg.exe"
-            Ok "ffmpeg installed and verified."
-        }
-        if ($needRuntime) {
-            Note "Downloading Deno..."
-            $zip = Join-Path $ToolsDir "deno.zip"
-            Save-Verified "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" `
-                "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum" "deno-x86_64-pc-windows-msvc.zip" $zip
-            Expand-Tool $zip @("deno.exe") (Join-Path $ToolsDir "deno")
-            Ok "Deno installed and verified."
-        }
-    }
-    else {
-        Warn "Skipped. Fill in the tool locations later in the extension's Settings."
-    }
+$denoChoice = "skip"
+if ($runtime) {
+    Write-Host ""
+    Ok "JavaScript runtime for YouTube: $runtime"
+}
+else {
+    Write-Host ""
+    Write-Host "    Deno (YouTube needs a JavaScript runtime; none found)" -ForegroundColor White
+    Note "  Enter = download it (41 MB download, 93 MB installed)   S = skip"
+    $default = if ($NoDownload) { "S" } else { "D" }
+    if ((Read-Choice "Choice" @("D", "S") $default) -eq "D") { $denoChoice = "download" }
 }
 
-# Fall back to a yt-dlp already on PATH if we did not download our own.
-if (-not (Test-Path -LiteralPath $YtDlp)) {
-    $found = Find-OnPath "yt-dlp.exe"
-    $YtDlp = if ($found) { $found } else { "" }
-}
-if (-not (Test-Path -LiteralPath $Ffmpeg)) { $Ffmpeg = "" }
+# --- 4. Install ---------------------------------------------------------------------
+Step "Installing to $InstallDir"
+Get-Process ytdlp_native_host -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $InstallDir, $HostDir, $ToolsDir | Out-Null
 
-# --- 3. Download folder and default settings ----------------------------------
-if (-not $DownloadDir) {
-    $DownloadDir = if ($previous.downloadDir) { [string]$previous.downloadDir } else { Join-Path $env:USERPROFILE "Downloads\yt-dlp" }
+$sameFolder = [IO.Path]::GetFullPath($SourceExtension).TrimEnd('\') -ieq $ExtensionDir.TrimEnd('\')
+if (-not $sameFolder) {
+    if (Test-Path -LiteralPath $ExtensionDir) { Remove-Item -LiteralPath $ExtensionDir -Recurse -Force }
+    Copy-Item -LiteralPath $SourceExtension -Destination $ExtensionDir -Recurse
+    Copy-Item -LiteralPath $SourceHost -Destination $HostExe -Force
 }
+Ok "Extension and helper program copied."
+
+$YtDlp = ""
+switch ($ytChoice) {
+    "use" { $YtDlp = $ytFound }
+    "skip" { }
+    "download" {
+        Note "Downloading yt-dlp..."
+        $YtDlp = Join-Path $ToolsDir "yt-dlp.exe"
+        Save-Verified $YtDlpUrl $YtDlpSums "yt-dlp.exe" $YtDlp
+        Ok "yt-dlp downloaded and verified."
+    }
+    default { $YtDlp = $ytChoice }
+}
+
+$Ffmpeg = ""
+switch ($ffChoice) {
+    "use" { $Ffmpeg = $ffFound }
+    "skip" { }
+    "download" {
+        Note "Downloading ffmpeg..."
+        $zip = Join-Path $ToolsDir "ffmpeg.zip"
+        Save-Verified $FfmpegUrl $FfmpegSums $FfmpegName $zip
+        Expand-Tool $zip @("ffmpeg.exe", "ffprobe.exe") (Join-Path $ToolsDir "ffmpeg\bin")
+        $Ffmpeg = Join-Path $ToolsDir "ffmpeg\bin\ffmpeg.exe"
+        Ok "ffmpeg downloaded and verified."
+    }
+    default { $Ffmpeg = $ffChoice }
+}
+
+if ($denoChoice -eq "download") {
+    Note "Downloading Deno..."
+    $zip = Join-Path $ToolsDir "deno.zip"
+    Save-Verified $DenoUrl $DenoSums $DenoName $zip
+    Expand-Tool $zip @("deno.exe") (Join-Path $ToolsDir "deno")
+    Ok "Deno downloaded and verified."
+}
+Get-ChildItem -LiteralPath $InstallDir -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+
+if (-not $YtDlp) { Warn "No yt-dlp chosen. Set it later in the extension's Settings." }
+if (-not $Ffmpeg) { Warn "No ffmpeg chosen. MP4 and MP3 formats need it; set it later in Settings." }
+
 New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
-
 $config = [ordered]@{ ytDlpPath = $YtDlp; ffmpegPath = $Ffmpeg; downloadDir = $DownloadDir }
 [IO.File]::WriteAllText($ConfigPath, ($config | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+Ok "Downloads will be saved to $DownloadDir"
 
-Step "Downloads will be saved to $DownloadDir"
-Note "You can change this any time in the extension's Settings."
-
-# --- 4. Register the helper with Chrome and Edge -----------------------------
+# --- 5. Register the helper with Chrome and Edge -----------------------------------
 Step "Connecting the helper program to Chrome"
 $manifestPath = Join-Path $HostDir "$HostName.json"
 $manifest = [ordered]@{
@@ -240,9 +408,13 @@ foreach ($browserKey in "HKCU:\Software\Google\Chrome\NativeMessagingHosts", "HK
     New-Item -Path $key -Force | Out-Null
     Set-Item -Path $key -Value $manifestPath
 }
+# Remember the location so updates and Uninstall find it.
+New-Item -Path $StateKey -Force | Out-Null
+Set-ItemProperty -Path $StateKey -Name "InstallDir" -Value $InstallDir
 Ok "Done (Chrome and Edge)."
 
-# --- 5. Hand over to Chrome -----------------------------------------------------
+# --- 6. Hand over to Chrome ---------------------------------------------------------
+$moved = $previousInstall -and ($previousInstall.TrimEnd('\') -ine $InstallDir.TrimEnd('\'))
 Set-Clipboard -Value $ExtensionDir
 $chrome = Find-Chrome
 if ($chrome) { Start-Process -FilePath $chrome -ArgumentList "chrome://extensions" }
@@ -260,7 +432,11 @@ Note "  2. Click 'Load unpacked'."
 Note "  3. Press Ctrl+V to paste the folder path (already copied for you), then click 'Select Folder'."
 Note "     Folder: $ExtensionDir"
 Write-Host ""
-Note "Already installed before? Click the reload arrow on the yt-dlp Right Click card instead,"
-Note "and remove any older copy that was loaded from a different folder."
+if ($moved) {
+    Warn "You installed to a new location. Remove the old yt-dlp Right Click card in Chrome first;"
+    Warn "the old folder ($previousInstall) can be deleted afterwards."
+} else {
+    Note "Already installed here before? Just click the reload arrow on the yt-dlp Right Click card."
+}
 Write-Host ""
 Ok "Settings fill themselves in. Right-click any video and choose yt-dlp."

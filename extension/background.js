@@ -276,6 +276,8 @@ const MESSAGE_HANDLERS = {
   updateYtDlp: () => runYtDlpUpdate("manual"),
   getHostInfo: (message) => getHostInfo(Boolean(message.force)),
   validateSettings: () => validateSettings(),
+  openDownloadFolder: () => openDownloadFolder(),
+  openInstallFolder: () => openInstallFolder(),
   saveSettings: async (message) => ({ ok: true, settings: await updateSettings(message.patch || {}) }),
   checkExtensionUpdate: () => maybeCheckExtensionUpdate(true),
   popupOpened: () => markFailuresSeen()
@@ -574,6 +576,23 @@ async function openJobPath(jobId, which) {
     return { ok: false, message: which === "log" ? "This job has no log file." : "Set a download folder in Settings first." };
   }
   const response = await sendNativeMessage({ type: "openPath", path, settings: hostSettings(settings) });
+  return { ok: Boolean(response?.ok), message: response?.message || "" };
+}
+
+async function openDownloadFolder() {
+  const settings = await getSettings();
+  if (!settings.downloadDir) {
+    return { ok: false, message: "Set a download folder first." };
+  }
+  const response = await sendNativeMessage({ type: "openPath", path: settings.downloadDir, settings: hostSettings(settings) });
+  return { ok: Boolean(response?.ok), message: response?.message || "" };
+}
+
+async function openInstallFolder() {
+  const response = await sendNativeMessage({ type: "openInstallFolder" });
+  if (response?.type === "error") {
+    return { ok: false, message: "Run the latest Setup.cmd first; this helper is too old to open its folder." };
+  }
   return { ok: Boolean(response?.ok), message: response?.message || "" };
 }
 
