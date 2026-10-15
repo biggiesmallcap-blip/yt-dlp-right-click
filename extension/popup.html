@@ -3,51 +3,79 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>yt-dlp Jobs</title>
+    <title>yt-dlp downloads</title>
+    <link rel="stylesheet" href="tokens.css">
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
-    <header>
-      <div class="brand-row">
-        <div class="brand">
-          <img src="icons/icon128.png" alt="" aria-hidden="true">
-          <h1>yt-dlp</h1>
-        </div>
-        <label id="display-mode-wrap" class="switch-control" title="Show advanced logs">
-          <input id="display-mode" type="checkbox">
-          <span>Logs</span>
-        </label>
-      </div>
-      <div class="header-actions">
-        <button id="cookies" type="button" title="Click to cycle cookie mode">Cookies</button>
-        <button id="settings" type="button">Settings</button>
-        <button id="clear" type="button">Clear finished</button>
+    <header class="bar">
+      <img class="logo" src="icons/icon32.png" alt="" width="20" height="20">
+      <h1>yt-dlp</h1>
+      <span id="version" class="version"></span>
+      <div class="bar-actions">
+        <button id="toggle-logs" class="icon-button" type="button" aria-pressed="false" title="Show full logs">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h7" /></svg>
+          <span class="sr-only">Show full logs</span>
+        </button>
+        <button id="open-settings" class="icon-button" type="button" title="Settings">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" /><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6" /></svg>
+          <span class="sr-only">Settings</span>
+        </button>
       </div>
     </header>
 
-    <section id="settings-status"></section>
-
-    <section class="manual-download" aria-label="Download current site">
-      <select id="manual-preset" aria-label="Download preset"></select>
-      <button id="manual-download" type="button">Download this site</button>
+    <section class="launch" aria-label="Download this tab">
+      <div class="launch-row">
+        <select id="preset" aria-label="Download preset"></select>
+        <button id="download" class="primary" type="button">Download</button>
+      </div>
+      <p id="tab-target" class="tab-target"></p>
     </section>
 
-    <main id="jobs"></main>
+    <div id="notices" aria-live="polite"></div>
+
+    <section class="jobs-head">
+      <h2 id="jobs-heading">Downloads</h2>
+      <label class="cookie-pick" title="When yt-dlp may use your browser login cookies">
+        Cookies
+        <select id="cookie-mode">
+          <option value="auto">only if needed</option>
+          <option value="never">never</option>
+          <option value="always">always</option>
+        </select>
+      </label>
+      <button id="clear" class="text-button" type="button">Clear finished</button>
+    </section>
+
+    <main id="jobs" aria-labelledby="jobs-heading"></main>
 
     <template id="job-template">
       <article class="job">
-        <div class="job-top">
-          <span class="status"></span>
-          <strong class="title"></strong>
+        <span class="glyph" aria-hidden="true"></span>
+        <div class="job-body">
+          <div class="job-head">
+            <h3 class="job-title"></h3>
+            <time class="job-time"></time>
+          </div>
+          <div class="job-sub">
+            <span class="job-preset"></span>
+            <span class="job-site"></span>
+          </div>
+          <div class="meter" hidden>
+            <div class="segments" role="progressbar" aria-valuemin="0" aria-valuemax="100"></div>
+            <div class="meter-text"></div>
+          </div>
+          <p class="job-summary"></p>
+          <div class="job-actions"></div>
+          <details class="job-log">
+            <summary>Log</summary>
+            <div class="log-meta"></div>
+            <pre class="log-lines"></pre>
+          </details>
         </div>
-        <a class="url" target="_blank" rel="noreferrer"></a>
-        <div class="meta"></div>
-        <div class="summary"></div>
-        <div class="job-actions"></div>
-        <pre class="output"></pre>
       </article>
     </template>
 
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

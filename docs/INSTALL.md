@@ -21,7 +21,7 @@ For public releases, users should install in this order:
 1. Install the Chrome extension.
 2. Download the Windows native host package.
 3. Double-click `install-native-host.cmd`.
-4. Open the extension Settings page and click `Test native host and settings`.
+4. Open the extension Settings page and click `Check setup`.
 
 The Windows native host package includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or `cargo build`.
 
@@ -94,12 +94,11 @@ Open the extension options page and set:
 - `yt-dlp.exe path or folder`, for example `C:\Tools\yt-dlp\yt-dlp.exe` or `C:\Tools\yt-dlp`
 - `ffmpeg path or folder`, for example `C:\Tools\ffmpeg\bin`
 - `download folder`, for example `D:\Downloads\yt-dlp`
-- `cookie mode`, normally leave this as `Auto`
-- `JavaScript runtime`, normally leave this as `Auto`
-- `popup display`, normally leave this as `Simple downloader`
-- `automatic yt-dlp update`, optional; leave off if another package manager owns yt-dlp
+- `JavaScript runtime`, normally leave this as `Automatic`
+- `cookies`, normally `Only when a site asks for login`; set a cookies.txt file if Chrome cookies cannot be read
+- `Keep yt-dlp up to date`, on by default; turn it off if another package manager owns yt-dlp
 
-Click `Test native host and settings`.
+Click `Check setup`.
 
 For YouTube JavaScript runtime warnings, install a supported runtime such as Node.js or Deno once. Leave the extension setting on `Auto`; the native host checks PATH and common Windows install folders. The manual runtime path is only for unusual installs.
 

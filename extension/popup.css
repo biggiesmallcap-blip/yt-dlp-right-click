@@ -1,232 +1,356 @@
-:root {
-  color-scheme: light dark;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-html {
-  width: 440px;
-  min-width: 440px;
+html,
+body {
+  width: 400px;
 }
 
 body {
-  width: 440px;
-  min-width: 440px;
-  min-height: 260px;
-  max-height: 620px;
-  margin: 0;
-  background: Canvas;
-  color: CanvasText;
+  min-height: 220px;
+  max-height: 600px;
 }
 
-header {
+/* Header ------------------------------------------------------------------ */
+
+.bar {
   position: sticky;
   top: 0;
-  z-index: 1;
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, Canvas 86%);
-  background: Canvas;
-}
-
-.brand-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.brand {
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  height: 44px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
-.brand img {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-}
-
-.header-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
+.logo {
+  display: block;
 }
 
 h1 {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  letter-spacing: 0;
-  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-button {
-  min-height: 30px;
-  border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas 82%);
-  border-radius: 6px;
-  padding: 4px 9px;
-  background: color-mix(in srgb, CanvasText 7%, Canvas 93%);
-  color: CanvasText;
-  font: 700 12px Arial, Helvetica, sans-serif;
-  cursor: pointer;
-}
-
-.switch-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas 82%);
-  border-radius: 6px;
-  padding: 4px 9px;
-  background: color-mix(in srgb, CanvasText 7%, Canvas 93%);
-  color: CanvasText;
-  font: 700 12px Arial, Helvetica, sans-serif;
-  cursor: pointer;
-  user-select: none;
-}
-
-.switch-control input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: #2563eb;
-}
-
-.switch-control.on {
-  border-color: #2563eb;
-}
-
-#cookies.on {
-  border-color: #b45309;
-  background: #b45309;
-  color: white;
-}
-
-#settings-status {
-  padding: 10px 12px;
-  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, Canvas 86%);
-  color: color-mix(in srgb, CanvasText 72%, Canvas 28%);
+.version {
+  color: var(--ink-faint);
   font-size: 12px;
-  line-height: 1.35;
 }
 
-body.simple #settings-status {
-  padding: 8px 12px;
+.bar-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
 }
 
-.manual-download {
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.icon-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-sunk);
+  color: var(--ink);
+}
+
+.icon-button[aria-pressed="true"] {
+  background: var(--surface-sunk);
+  color: var(--red);
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* Launcher ---------------------------------------------------------------- */
+
+.launch {
+  padding: 10px 12px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.launch-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, Canvas 86%);
 }
 
-.manual-download select {
-  box-sizing: border-box;
+.launch-row select {
   min-width: 0;
-  min-height: 30px;
-  border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas 82%);
-  border-radius: 6px;
-  padding: 4px 8px;
-  background: Canvas;
-  color: CanvasText;
-  font: 12px Arial, Helvetica, sans-serif;
+  min-height: 32px;
 }
 
-main {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  overflow-x: hidden;
+.launch-row .primary {
+  min-height: 32px;
+  padding-inline: 16px;
 }
 
-.empty {
-  margin: 48px 12px;
-  color: color-mix(in srgb, CanvasText 62%, Canvas 38%);
-  text-align: center;
-}
-
-.job {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, CanvasText 14%, Canvas 86%);
-  border-radius: 8px;
-  padding: 10px;
-  background: color-mix(in srgb, CanvasText 3%, Canvas 97%);
-}
-
-body.simple .job {
-  padding: 9px 10px;
-}
-
-.job-top {
-  display: grid;
-  grid-template-columns: 10px 1fr;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.status {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #64748b;
-}
-
-.status.running,
-.status.starting {
-  background: #1d4ed8;
-}
-
-.status.complete {
-  background: #0f766e;
-}
-
-.status.failed {
-  background: #b91c1c;
-}
-
-.title {
+.tab-target {
+  margin: 6px 0 0;
   overflow: hidden;
-  font-size: 13px;
+  color: var(--ink-faint);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.url {
+.tab-target strong {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+#notices:not(:empty) {
+  display: grid;
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+}
+
+#notices .notice {
+  font-size: 12px;
+}
+
+/* Job list ----------------------------------------------------------------- */
+
+.jobs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 6px;
+}
+
+h2 {
+  margin: 0 auto 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cookie-pick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.cookie-pick select {
+  min-height: 24px;
+  border-color: transparent;
+  padding: 1px 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.cookie-pick select:hover {
+  border-color: var(--line-strong);
+}
+
+.cookie-pick.always select {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.text-button {
+  min-height: 24px;
+  border-color: transparent;
+  padding: 1px 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.text-button:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+main {
+  padding: 0 0 8px;
+}
+
+.empty {
+  margin: 28px 24px 36px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.empty strong {
   display: block;
-  overflow-wrap: anywhere;
-  margin-top: 6px;
-  color: #1d4ed8;
-  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+  font-weight: 600;
 }
 
-.meta {
-  margin-top: 6px;
-  color: color-mix(in srgb, CanvasText 62%, Canvas 38%);
-  font-size: 12px;
+.job {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
 }
 
-.summary {
-  margin-top: 6px;
-  overflow-wrap: anywhere;
-  color: color-mix(in srgb, CanvasText 78%, Canvas 22%);
-  font-size: 12px;
+.job:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+/* Status glyph: ring while working, filled when done. */
+.glyph {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-faint);
+}
+
+.job.running .glyph,
+.job.starting .glyph {
+  border-color: var(--blue);
+  border-right-color: transparent;
+  animation: spin 1s linear infinite;
+}
+
+.job.complete .glyph {
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.job.failed .glyph {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.job.cancelled .glyph {
+  border-color: var(--ink-faint);
+  background: transparent;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.job-body {
+  min-width: 0;
+}
+
+.job-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.job-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-time {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.job-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 1px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.job-preset {
+  color: var(--ink-soft);
+}
+
+/* The level meter is the one loud element: 24 segments like a deck's VU. */
+.meter {
+  margin-top: 8px;
+}
+
+.segments {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+  height: 8px;
+}
+
+.segments span {
+  border-radius: 1px;
+  background: var(--segment-off);
+}
+
+.segments span.on {
+  background: var(--red);
+}
+
+.segments.indeterminate span {
+  animation: pulse 1.2s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 50ms);
+}
+
+@keyframes pulse {
+  50% {
+    background: color-mix(in srgb, var(--red) 45%, var(--segment-off));
+  }
+}
+
+.meter-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.job-summary {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.job.failed .job-summary {
+  color: var(--red-ink);
+}
+
+.job-summary:empty {
+  display: none;
 }
 
 .job-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
 }
 
@@ -235,32 +359,55 @@ body.simple .job {
 }
 
 .job-actions button {
-  min-height: 28px;
-  padding: 3px 8px;
+  min-height: 26px;
+  padding: 2px 9px;
   font-size: 12px;
 }
 
-.output {
-  box-sizing: border-box;
-  max-height: 150px;
-  width: 100%;
+.job-actions .remove {
+  margin-left: auto;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-faint);
+}
+
+.job-log {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+body:not(.logs) .job-log {
+  display: none;
+}
+
+.job-log summary {
+  width: max-content;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.log-meta {
+  margin: 6px 0 4px;
+  overflow-wrap: anywhere;
+  color: var(--ink-faint);
+}
+
+.log-lines {
+  max-height: 180px;
+  margin: 0;
   overflow: auto;
-  margin: 8px 0 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 8px;
-  background: color-mix(in srgb, CanvasText 8%, Canvas 92%);
-  color: CanvasText;
+  background: var(--surface-sunk);
+  font: 11px/1.45 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
-  font: 11px Consolas, "Courier New", monospace;
 }
 
-body.simple .url,
-body.simple .meta,
-body.simple .output {
-  display: none;
+.log-lines .err {
+  color: var(--red-ink);
 }
 
-body.advanced .summary {
-  display: none;
+.log-lines .hint {
+  color: var(--amber);
 }
