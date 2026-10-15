@@ -93,21 +93,52 @@ Playlists are only enabled from explicit playlist menu items. Normal video/audio
 
 The Instagram group only appears on instagram.com and is meant for backing up your own account. It uses your logged-in cookies and saves to `Instagram\<account>\`. The stories backup keeps an archive so repeat runs only fetch new items. Right-click a profile page to back up that profile's current stories, or a highlight to save the highlight.
 
-## Quick Install
+## Install
 
-These steps target Google Chrome on Windows.
+Windows and Google Chrome, about 5 minutes. You set up three things: yt-dlp itself, the Chrome extension, and a small helper program that lets the extension start yt-dlp.
 
-1. Install or unpack the Chrome extension.
-2. Download and unzip the `yt-dlp-right-click-native-host-windows-v<version>.zip` release asset.
-3. Double-click `install-native-host.cmd`.
-4. Paste the extension ID if prompted.
-5. Open the extension settings page.
-6. Set paths for `yt-dlp.exe`, `ffmpeg.exe`, and your download folder.
-7. Click `Check setup`.
+### Before you start: get yt-dlp and ffmpeg
 
-The native host must be installed once so Chrome knows which local executable is allowed to receive messages from this extension. It does not have to be built by the user.
+- **yt-dlp:** download `yt-dlp.exe` from the [yt-dlp releases page](https://github.com/yt-dlp/yt-dlp/releases/latest) and put it in a folder, for example `C:\Tools\yt-dlp\`.
+- **ffmpeg:** download a Windows build from [yt-dlp's FFmpeg builds](https://github.com/yt-dlp/FFmpeg-Builds/releases/latest) (the `win64-gpl` zip), unzip it, and note the `bin` folder that contains `ffmpeg.exe`.
+- **For YouTube:** also install [Deno](https://deno.com/) or [Node.js](https://nodejs.org/). The extension finds them automatically.
 
-For development from source:
+### Step 1: Add the extension to Chrome
+
+1. From the [latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest), download `yt-dlp-right-click-extension-v<version>.zip`.
+2. Unzip it into a folder you will keep, for example `C:\Tools\yt-dlp-right-click\extension\`. Chrome runs the extension from this folder, so don't delete or move it later.
+3. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
+4. Click **Load unpacked** and select the folder from step 2.
+5. Copy the extension's **ID**: the 32-letter code shown on its card, like `nbimhdbidaggcplfdalkjelidpomghlf`. You need it in Step 2.
+
+### Step 2: Install the helper program
+
+Chrome extensions can't run programs on your PC by themselves. This helper (the "native host") lets this one extension, and nothing else, start yt-dlp. No admin rights needed.
+
+1. From the same release, download `yt-dlp-right-click-native-host-windows-v<version>.zip`.
+2. Unzip it into a folder you will keep, for example `C:\Tools\yt-dlp-right-click\native-host\`.
+3. Double-click `install-native-host.cmd`. If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**.
+4. When it says `Paste extension ID`, paste the ID from Step 1 and press Enter.
+5. You should see `Registered native host`. Press any key to close the window.
+
+If you ever move this folder, run `install-native-host.cmd` again.
+
+### Step 3: Tell it where yt-dlp and ffmpeg are
+
+1. Click the extension's icon in the Chrome toolbar, then the gear icon. (Pin it first from the puzzle-piece menu if you can't see it.)
+2. Fill in:
+   - **yt-dlp:** the folder containing `yt-dlp.exe`
+   - **ffmpeg:** the folder containing `ffmpeg.exe`
+   - **Download folder:** where downloads should go
+3. Click **Check setup**. It lists the versions it found, or tells you exactly what's wrong.
+
+### Step 4: Download something
+
+Right-click a video, a link, or the page itself, choose **yt-dlp**, and pick a format. Or click the extension icon and press **Download** to grab the current tab. Progress shows in the popup.
+
+### Building from source instead
+
+For development, build the helper yourself and register it with your extension ID:
 
 ```powershell
 cd native-host
