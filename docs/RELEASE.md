@@ -37,27 +37,22 @@ These steps prepare the GitHub release artifacts.
 From the repository root:
 
 ```powershell
-.\scripts\package-release.ps1 -Version 1.1.0
+.\scripts\package-release.ps1 -Version 1.2.0
 ```
 
-The script creates:
-
-- `dist\1.1.0\yt-dlp-right-click-extension-v1.1.0.zip`
-- `dist\1.1.0\yt-dlp-right-click-native-host-windows-v1.1.0.zip`
-
-The native host ZIP contains the executable, installer scripts, uninstall script, README, install guide, security notes, and native host manifest template. It intentionally does not contain a generated `com.ytdlp_right_click.native_host.json`.
+The script creates `dist\1.2.0\yt-dlp-right-click-v1.2.0-windows.zip`: one folder with `Setup.cmd`, `setup.ps1`, `Uninstall.cmd`, `uninstall.ps1`, a short `README.txt`, `SECURITY.md`, `extension\`, and `host\ytdlp_native_host.exe`. It never contains a generated native host manifest or `config.json`.
 
 ## GitHub Release
 
-1. Create tag `v1.1.0`.
-2. Use the `CHANGELOG.md` `1.1.0` section as release notes.
-3. Attach both ZIP files from `dist\1.1.0`.
+1. Create tag `v1.2.0`.
+2. Use the `CHANGELOG.md` `1.2.0` section as release notes.
+3. Attach the ZIP from `dist\1.2.0`.
 4. Mark the release as stable after CI passes.
 
 ## Manual Smoke Test
 
-1. Load the extension ZIP contents as an unpacked extension in Chrome.
-2. Run the packaged native host installer and provide the extension ID when prompted.
-3. Open extension settings and click `Check setup`.
-4. Start one `File: Best available` job against a known public URL.
-5. Confirm the popup shows completion and `Open folder` opens under the configured download directory.
+1. Unzip the release ZIP and run `Setup.cmd`.
+2. Load `%LOCALAPPDATA%\yt-dlp-right-click\extension` as an unpacked extension.
+3. Open Settings: the Status box should say Ready and the tool paths should be filled in.
+4. Start one `Best single file` job against a known public URL.
+5. Confirm the popup shows completion and `Show in folder` opens the download folder.

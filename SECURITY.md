@@ -32,6 +32,10 @@ The Chrome extension can collect a URL and preset ID. It cannot decide the execu
 - The `activeTab` permission is used only by the popup's Download button to read the current tab URL after the user clicks the extension button.
 - The only network request the extension makes itself is an optional daily check of this repository's latest GitHub release. It sends no user data.
 
+## Setup Downloads
+
+`Setup.cmd` downloads tools only when they are missing, only over HTTPS from their official GitHub releases (yt-dlp, yt-dlp's FFmpeg builds, Deno), and checks each file against the SHA-256 checksum published with that release before using it. A mismatch deletes the download and stops. Everything installs per user under `%LOCALAPPDATA%\yt-dlp-right-click`; no administrator rights are requested.
+
 ## Native Messaging Host
 
 Chrome will only start the native host for extension IDs listed in the host manifest `allowed_origins`. The checked-in template is `native-host/com.ytdlp_right_click.native_host.template.json`; the real `native-host/com.ytdlp_right_click.native_host.json` is generated during install because it must contain the user's absolute executable path and the actual extension ID.
@@ -44,7 +48,7 @@ HKCU\Software\Google\Chrome\NativeMessagingHosts\com.ytdlp_right_click.native_ho
 
 Do not add wildcard origins or unrelated extension IDs to the host manifest. Do not publish a generated manifest from a developer machine.
 
-For public releases, embed the Chrome Web Store extension ID into `scripts/install-native-host.ps1` before packaging the native host installer. Source builds can still prompt for the unpacked extension ID.
+The extension ID is fixed by the public `key` in `extension/manifest.json`, so the installers allow exactly `chrome-extension://kndejcjfodoflkabelfaeiegiaofgjgm/`. The matching private key is never committed. If the extension is ever published to the Chrome Web Store under a different ID, update `$ExtensionId` in `scripts/setup.ps1` and `$PublishedExtensionId` in `scripts/install-native-host.ps1`.
 
 ## Cookies
 

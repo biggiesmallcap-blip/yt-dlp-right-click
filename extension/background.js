@@ -113,11 +113,16 @@ async function migrateSettings() {
 // ---------------------------------------------------------------------------
 // Lifecycle
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   await migrateSettings();
   await createContextMenus();
   await ensureAlarm();
   await updateBadge();
+  // Fills yt-dlp/ffmpeg/folder from the helper before anything else runs.
+  await getHostInfo(true).catch(() => {});
+  if (details.reason === "install") {
+    chrome.runtime.openOptionsPage();
+  }
   runMaintenance("installed");
 });
 
@@ -479,13 +484,13 @@ async function finishJobWithError(jobId, message) {
 function nativeHostErrorMessage(message) {
   const lower = String(message).toLowerCase();
   if (lower.includes("specified native messaging host not found")) {
-    return "The native host is not installed for this extension. Open Settings and follow the native host setup steps.";
+    return "The helper program isn't installed yet. Run Setup.cmd from the yt-dlp Right Click download.";
   }
   if (lower.includes("access to the specified native messaging host is forbidden")) {
-    return "The native host is installed for a different extension ID. Rerun the installer with the ID shown in Settings.";
+    return "The helper program was set up for an older copy of the extension. Run Setup.cmd from the latest yt-dlp Right Click download.";
   }
   if (lower.includes("native host has exited")) {
-    return "The native host exited early. Open Settings and run Check setup.";
+    return "The helper program stopped unexpectedly. Run Setup.cmd again, then Check setup in Settings.";
   }
   return `Native host disconnected: ${message}`;
 }
@@ -655,6 +660,9 @@ async function getHostInfo(force) {
     info = response?.type === "version"
       ? { ok: true, hostVersion: String(response.hostVersion || ""), presets: response.presets || [] }
       : { ok: true, hostVersion: "1.0.0", presets: [], outdated: true };
+    if (response?.defaults) {
+      await fillEmptySettings(response.defaults);
+    }
   } catch (error) {
     info = { ok: false, message: errorText(error) };
   }
@@ -666,6 +674,27 @@ async function getHostInfo(force) {
   // Never cache failures: the user is probably about to fix the install.
   hostInfoCache = info.ok ? { at: Date.now(), info } : null;
   return info;
+}
+
+/**
+ * Copies the helper's suggested paths into settings the user has left empty.
+ * Never overwrites a value the user typed.
+ */
+async function fillEmptySettings(defaults) {
+  const keys = ["ytDlpPath", "ffmpegPath", "downloadDir"];
+  await withStorageLock(async () => {
+    const settings = await getSettings();
+    const patch = {};
+    for (const key of keys) {
+      const value = typeof defaults[key] === "string" ? defaults[key].trim() : "";
+      if (!settings[key] && value) {
+        patch[key] = value;
+      }
+    }
+    if (Object.keys(patch).length) {
+      await chrome.storage.local.set({ settings: normalizeSettings({ ...settings, ...patch }) });
+    }
+  });
 }
 
 async function validateSettings() {

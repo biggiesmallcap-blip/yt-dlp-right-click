@@ -19,11 +19,9 @@ It is built for people who already use `yt-dlp` on Windows and want a quick brow
 
 Chrome extensions cannot launch local programs by themselves. This project uses Chrome's native messaging system: the browser extension handles the UI, and the native host handles local execution. The host validates every request, maps preset IDs to hardcoded `yt-dlp` arguments, and launches `yt-dlp.exe` directly without a shell.
 
-## What's New in 1.1
+## What's New in 1.2
 
-Live progress with Cancel and Resume, a redesigned popup and settings page, automatic yt-dlp updates, Instagram backup presets, MP3 320 kbps, tagged audio with cover art, notifications, and a security fix: yt-dlp now ignores config files, so a downloaded file can no longer inject yt-dlp options. Full list in [CHANGELOG.md](CHANGELOG.md).
-
-Upgrading from 1.0? Install the new native host too (see [Upgrading](#upgrading-from-100)); the 1.0 host does not know the new presets.
+Setup is now one download and one double-click. `Setup.cmd` installs everything, fetches yt-dlp, ffmpeg, and Deno if you don't have them, and the extension fills in its own settings. No extension ID to copy, no paths to type. Full list in [CHANGELOG.md](CHANGELOG.md).
 
 ## Highlights
 
@@ -42,42 +40,23 @@ Upgrading from 1.0? Install the new native host too (see [Upgrading](#upgrading-
 - yt-dlp kept up to date automatically (stable or nightly), plus a notice when a new extension release is out.
 - "Check setup" reports native host, yt-dlp, and ffmpeg versions and warns when something is stale or misconfigured.
 
-## Download
+## Install
 
-Grab the latest GitHub release:
+Works on Windows with Google Chrome (or Edge). No admin rights needed.
 
-[Download the latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest)
+1. **Download** `yt-dlp-right-click-v<version>-windows.zip` from the [latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest) and unzip it anywhere.
+2. **Double-click `Setup.cmd`.** If Windows says "Windows protected your PC", click **More info**, then **Run anyway**. Press Enter when it offers to download yt-dlp, ffmpeg, and Deno.
+3. **In the Chrome tab Setup opens:** turn on **Developer mode** (top right), click **Load unpacked**, press **Ctrl+V**, and click **Select Folder**. Setup already copied the right folder path.
 
-Release assets:
+Done. Right-click any video and choose **yt-dlp**. The extension finds yt-dlp and ffmpeg by itself; its Settings page shows "Ready" when everything works.
 
-- `yt-dlp-right-click-extension-v<version>.zip`
-- `yt-dlp-right-click-native-host-windows-v<version>.zip`
+Everything is installed to `%LOCALAPPDATA%\yt-dlp-right-click`, so the folder you unzipped can be deleted afterwards. Downloads go to `Downloads\yt-dlp` unless you change it in Settings.
 
-The native host ZIP includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or a local build step.
+**Updating:** download the new zip, run its `Setup.cmd`, then click the reload arrow on the yt-dlp Right Click card in `chrome://extensions`.
 
-## Prerequisites
+**Uninstalling:** run `Uninstall.cmd`, then click **Remove** in `chrome://extensions`. Your downloaded files are kept.
 
-| Requirement | Why it is needed | Notes |
-| --- | --- | --- |
-| Windows | The native host and installer target Windows. | User-level install; no administrator rights required. |
-| Google Chrome | The extension is a Chrome MV3 extension. | Chromium-based browsers may work if they support Chrome native messaging, but Chrome is the supported target. |
-| `yt-dlp.exe` | Performs the actual download. | Set either the full `yt-dlp.exe` path or its containing folder in extension settings. |
-| `ffmpeg.exe` | Required for MP4 merging and audio extraction presets. | Set either the full `ffmpeg.exe` path or the folder containing it. |
-| Download folder | Where output files, logs, and subfolders are written. | The host creates `Video`, `Audio`, `Files`, `Instagram`, and `_yt-dlp-right-click-logs` under this root. Logs older than 30 days are pruned. |
-| JavaScript runtime | Modern YouTube extraction needs one. | Leave on `Automatic`; Node.js, Deno, QuickJS, or Bun are detected. |
-
-What is bundled:
-
-- Chrome extension files in the extension ZIP.
-- A prebuilt `ytdlp_native_host.exe` in the Windows native host ZIP.
-- Installer scripts that register the native host for the current Windows user.
-
-What is not bundled:
-
-- `yt-dlp.exe`
-- `ffmpeg.exe`
-- browser cookies or account credentials
-- any DRM, paywall, or site-restriction bypass
+**Why the "Developer mode" step?** Extensions not sold through the Chrome Web Store can only be added this way. The helper program Setup installs is what lets the extension start yt-dlp; Chrome extensions can't run programs on their own.
 
 ## Presets
 
@@ -93,78 +72,32 @@ Playlists are only enabled from explicit playlist menu items. Normal video/audio
 
 The Instagram group only appears on instagram.com and is meant for backing up your own account. It uses your logged-in cookies and saves to `Instagram\<account>\`. The stories backup keeps an archive so repeat runs only fetch new items. Right-click a profile page to back up that profile's current stories, or a highlight to save the highlight.
 
-## Install
+## Upgrading from 1.0 or 1.1
 
-Windows and Google Chrome, about 5 minutes. You set up three things: yt-dlp itself, the Chrome extension, and a small helper program that lets the extension start yt-dlp.
+1.2 gives the extension a fixed ID, so Chrome treats it as a new extension once:
 
-### Before you start: get yt-dlp and ffmpeg
+1. Run the new `Setup.cmd` as above.
+2. In `chrome://extensions`, click **Remove** on the old yt-dlp Right Click, then **Load unpacked** the new folder (Setup copies its path).
 
-- **yt-dlp:** download `yt-dlp.exe` from the [yt-dlp releases page](https://github.com/yt-dlp/yt-dlp/releases/latest) and put it in a folder, for example `C:\Tools\yt-dlp\`.
-- **ffmpeg:** download a Windows build from [yt-dlp's FFmpeg builds](https://github.com/yt-dlp/FFmpeg-Builds/releases/latest) (the `win64-gpl` zip), unzip it, and note the `bin` folder that contains `ffmpeg.exe`.
-- **For YouTube:** also install [Deno](https://deno.com/) or [Node.js](https://nodejs.org/). The extension finds them automatically.
+Settings fill themselves in again from what Setup found. If you used a custom download folder, set it once more in Settings. Download history from the old copy is not carried over.
 
-### Step 1: Add the extension to Chrome
-
-1. From the [latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest), download `yt-dlp-right-click-extension-v<version>.zip`.
-2. Unzip it into a folder you will keep, for example `C:\Tools\yt-dlp-right-click\extension\`. Chrome runs the extension from this folder, so don't delete or move it later.
-3. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
-4. Click **Load unpacked** and select the folder from step 2.
-5. Copy the extension's **ID**: the 32-letter code shown on its card, like `nbimhdbidaggcplfdalkjelidpomghlf`. You need it in Step 2.
-
-### Step 2: Install the helper program
-
-Chrome extensions can't run programs on your PC by themselves. This helper (the "native host") lets this one extension, and nothing else, start yt-dlp. No admin rights needed.
-
-1. From the same release, download `yt-dlp-right-click-native-host-windows-v<version>.zip`.
-2. Unzip it into a folder you will keep, for example `C:\Tools\yt-dlp-right-click\native-host\`.
-3. Double-click `install-native-host.cmd`. If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**.
-4. When it says `Paste extension ID`, paste the ID from Step 1 and press Enter.
-5. You should see `Registered native host`. Press any key to close the window.
-
-If you ever move this folder, run `install-native-host.cmd` again.
-
-### Step 3: Tell it where yt-dlp and ffmpeg are
-
-1. Click the extension's icon in the Chrome toolbar, then the gear icon. (Pin it first from the puzzle-piece menu if you can't see it.)
-2. Fill in:
-   - **yt-dlp:** the folder containing `yt-dlp.exe`
-   - **ffmpeg:** the folder containing `ffmpeg.exe`
-   - **Download folder:** where downloads should go
-3. Click **Check setup**. It lists the versions it found, or tells you exactly what's wrong.
-
-### Step 4: Download something
-
-Right-click a video, a link, or the page itself, choose **yt-dlp**, and pick a format. Or click the extension icon and press **Download** to grab the current tab. Progress shows in the popup.
-
-### Building from source instead
-
-For development, build the helper yourself and register it with your extension ID:
+## Building from Source
 
 ```powershell
 cd native-host
 cargo build --release
 cd ..
-.\scripts\install-native-host.ps1 -ExtensionId "<your-extension-id>"
+.\scripts\install-native-host.ps1
 ```
 
-See [docs/INSTALL.md](docs/INSTALL.md) for full setup and troubleshooting.
-
-## Upgrading from 1.0.0
-
-1. Download both 1.1.0 release ZIPs.
-2. Replace your unpacked extension folder with the new extension ZIP contents, then click reload on `chrome://extensions`. The extension ID stays the same as long as you load it from the same folder.
-3. Unzip the new native host package and run `install-native-host.cmd` again.
-4. Open Settings and click `Check setup`. It should report native host v1.1.0.
-
-From source: pull, then `cargo build --release` in `native-host` and reload the extension.
-
-Settings carry over. Automatic yt-dlp updates are switched on once during the upgrade; turn them off in Settings if a package manager owns yt-dlp.
+Then load the `extension` folder with **Load unpacked**. The extension's ID is fixed by the `key` in `manifest.json`, so the install script needs no ID. See [docs/INSTALL.md](docs/INSTALL.md) for details.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| Popup says the native host is older than the extension | Install the latest native host package, or rebuild from source. |
+| "The helper program isn't installed yet" | Run `Setup.cmd` from the download. |
+| Popup says the helper is older than the extension | Run the newest `Setup.cmd`, or rebuild from source. |
 | "Could not read chrome cookies" or "Failed to decrypt with DPAPI" | Chrome, Edge, and Brave on Windows encrypt cookies in a way yt-dlp often cannot read. Export a cookies.txt file and set it under Settings > Cookies, or choose Firefox as the cookie browser. |
 | "Sign in to confirm you're not a bot" | Usually fixed by updating yt-dlp (Settings > Update yt-dlp now), then by cookies. |
 | Audio conversion or merging fails | Update ffmpeg; very old builds (2020 and earlier) fail on some formats and on long paths. |
@@ -203,10 +136,10 @@ tests/           Node unit tests for the extension helpers
 ## Build Release Artifacts
 
 ```powershell
-.\scripts\package-release.ps1 -Version 1.1.0
+.\scripts\package-release.ps1 -Version 1.2.0
 ```
 
-The script creates extension and native-host ZIP files under `dist\1.1.0`. The native host ZIP is assembled from a whitelist, so local generated manifests are not included.
+The script creates `dist\1.2.0\yt-dlp-right-click-v1.2.0-windows.zip`, assembled from a whitelist, so local generated manifests and settings are never included.
 
 ## Public Build Note
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.0] - 2026-10-15
+
+### Added
+
+- One-step install: a single `yt-dlp-right-click-v1.2.0-windows.zip` with `Setup.cmd`. Setup installs to `%LOCALAPPDATA%\yt-dlp-right-click`, downloads yt-dlp, ffmpeg, and Deno only if missing (verifying each against its official SHA-256 checksums), registers the helper for Chrome and Edge, and opens `chrome://extensions` with the folder path already on the clipboard.
+- `Uninstall.cmd` removes the helper registration and installed files; downloads are kept.
+- The extension fills in empty yt-dlp, ffmpeg, and download folder settings from the helper, and opens Settings on first install.
+- Settings opens with a Status box that says "Ready" or exactly what to do next.
+
+### Changed
+
+- The extension has a fixed ID (`kndejcjfodoflkabelfaeiegiaofgjgm`, set by the manifest `key`), so it no longer changes when loaded from a different folder and nobody has to copy an ID into the installer. Upgrading from 1.0/1.1 means loading it once as a new extension.
+- Error messages talk about "the helper program" and point to `Setup.cmd` instead of command lines.
+- The release is one zip instead of separate extension and native host zips.
+
+### Fixed
+
+- "The native host is installed for a different extension ID" after loading the extension from a new folder.
+- The popup said "Finish setup: add the yt-dlp location" when the real problem was a missing helper program.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added

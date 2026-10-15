@@ -19,10 +19,17 @@
 
     <main>
       <form id="settings-form" autocomplete="off">
+        <section class="panel" aria-labelledby="status-heading">
+          <div class="panel-head">
+            <h2 id="status-heading">Status</h2>
+          </div>
+          <div id="host-state" class="result"><p style="margin:0">Checking the helper program...</p></div>
+        </section>
+
         <section class="panel" aria-labelledby="tools-heading">
           <div class="panel-head">
             <h2 id="tools-heading">Tools and folder</h2>
-            <p>Paths on this PC. A folder or the .exe itself both work.</p>
+            <p>Filled in automatically by Setup. Change them only if you keep yt-dlp or ffmpeg somewhere else; a folder or the .exe itself both work.</p>
           </div>
 
           <div class="field">
@@ -192,12 +199,9 @@
           </div>
         </section>
 
-        <section class="panel" aria-labelledby="host-heading">
-          <div class="panel-head">
-            <h2 id="host-heading">Native host</h2>
-            <p>The small helper program that lets Chrome start yt-dlp. It is installed once per PC.</p>
-          </div>
-          <div id="host-state" class="result"></div>
+        <details class="panel dev-panel">
+          <summary><h2>Developer setup</h2></summary>
+          <p class="help">Only for building from source. Normal installs use Setup.cmd and never need this.</p>
           <div class="field">
             <label for="extensionId">Extension ID</label>
             <div class="control copy-row">
@@ -212,10 +216,10 @@
                 <input id="installCommand" type="text" readonly>
                 <button type="button" data-copy="installCommand">Copy</button>
               </div>
-              <p class="help">From the project folder in PowerShell. Release users can double-click install-native-host.cmd instead.</p>
+              <p class="help">Run from the project folder in PowerShell after cargo build --release.</p>
             </div>
           </div>
-        </section>
+        </details>
       </form>
     </main>
 

@@ -61,6 +61,21 @@ form {
   background: var(--surface);
 }
 
+.dev-panel summary {
+  cursor: pointer;
+}
+
+.dev-panel summary h2 {
+  display: inline;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.dev-panel:not([open]) {
+  gap: 0;
+}
+
 .panel-head h2 {
   margin: 0;
   font-size: 15px;

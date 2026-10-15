@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $HostName = "com.ytdlp_right_click.native_host"
-$PublishedExtensionId = ""
+$PublishedExtensionId = "kndejcjfodoflkabelfaeiegiaofgjgm"
 
 $SourceProjectRoot = Split-Path -Parent $PSScriptRoot
 $PackagedHostExePath = Join-Path $PSScriptRoot "ytdlp_native_host.exe"
