@@ -1,7 +1,7 @@
 # yt-dlp Right Click
 
 <p align="center">
-  <img src="docs/assets/github-hero.png" alt="yt-dlp Right Click banner showing the extension popup and right-click presets">
+  <img src="docs/assets/github-hero.png" alt="yt-dlp Right Click banner">
 </p>
 
 <p align="center">
@@ -19,7 +19,17 @@ It is built for people who already use `yt-dlp` on Windows and want a quick brow
 
 Chrome extensions cannot launch local programs by themselves. This project uses Chrome's native messaging system: the browser extension handles the UI, and the native host handles local execution. The host validates every request, maps preset IDs to hardcoded `yt-dlp` arguments, and launches `yt-dlp.exe` directly without a shell.
 
+## What's New in 1.1
+
+Live progress with Cancel and Resume, a redesigned popup and settings page, automatic yt-dlp updates, Instagram backup presets, MP3 320 kbps, tagged audio with cover art, notifications, and a security fix: yt-dlp now ignores config files, so a downloaded file can no longer inject yt-dlp options. Full list in [CHANGELOG.md](CHANGELOG.md).
+
+Upgrading from 1.0? Install the new native host too (see [Upgrading](#upgrading-from-100)); the 1.0 host does not know the new presets.
+
 ## Highlights
+
+<p align="center">
+  <img src="docs/assets/popup-v1.1.jpg" width="380" alt="The popup in dark mode: a preset picker with a Download button, two downloads in progress with segmented progress meters, speed and time left, finished downloads with Show in folder, and a failed download explaining the cookie fix">
+</p>
 
 - Right-click any page, link, selected URL, image, video, or audio element, or use "Download again" to repeat your last preset.
 - Live progress, speed, and time left in the popup, with Cancel and Resume.
@@ -108,6 +118,27 @@ cd ..
 
 See [docs/INSTALL.md](docs/INSTALL.md) for full setup and troubleshooting.
 
+## Upgrading from 1.0.0
+
+1. Download both 1.1.0 release ZIPs.
+2. Replace your unpacked extension folder with the new extension ZIP contents, then click reload on `chrome://extensions`. The extension ID stays the same as long as you load it from the same folder.
+3. Unzip the new native host package and run `install-native-host.cmd` again.
+4. Open Settings and click `Check setup`. It should report native host v1.1.0.
+
+From source: pull, then `cargo build --release` in `native-host` and reload the extension.
+
+Settings carry over. Automatic yt-dlp updates are switched on once during the upgrade; turn them off in Settings if a package manager owns yt-dlp.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Popup says the native host is older than the extension | Install the latest native host package, or rebuild from source. |
+| "Could not read chrome cookies" or "Failed to decrypt with DPAPI" | Chrome, Edge, and Brave on Windows encrypt cookies in a way yt-dlp often cannot read. Export a cookies.txt file and set it under Settings > Cookies, or choose Firefox as the cookie browser. |
+| "Sign in to confirm you're not a bot" | Usually fixed by updating yt-dlp (Settings > Update yt-dlp now), then by cookies. |
+| Audio conversion or merging fails | Update ffmpeg; very old builds (2020 and earlier) fail on some formats and on long paths. |
+| A download stopped when the browser closed | Expected: closing Chrome or reloading the extension stops running downloads. Retry resumes from the partial file. |
+
 ## Security Model
 
 The extension can collect a URL and preset ID. It cannot choose arbitrary command-line arguments.
@@ -119,7 +150,10 @@ The native host:
 - validates paths as absolute local paths
 - launches `yt-dlp.exe` directly with an argument array
 - passes the URL after `--` so it can never be read as an option
+- runs yt-dlp with `--ignore-config`, so no config file (including one a download might drop into the output folder) can add options such as `--exec`
 - allowlists every setting that reaches the command line (cookie browser, update channel, JS runtime)
+- reads titles and file paths back as JSON, so page-controlled titles cannot spoof progress or results
+- stops yt-dlp when the browser disconnects instead of leaving it running unattended
 - restricts final output, `Show in folder`, and `Show log file` to the configured download root
 - excludes generated native host manifests from release artifacts
 
