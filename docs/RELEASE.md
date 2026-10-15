@@ -44,10 +44,20 @@ The script creates `dist\1.2.0\yt-dlp-right-click-v1.2.0-windows.zip`: one folde
 
 ## GitHub Release
 
-1. Create tag `v1.2.0`.
-2. Use the `CHANGELOG.md` `1.2.0` section as release notes.
-3. Attach the ZIP from `dist\1.2.0`.
-4. Mark the release as stable after CI passes.
+Releases are built by `.github/workflows/release.yml`, never uploaded from a local machine:
+
+1. Bump the version in `extension/manifest.json` and `native-host/Cargo.toml`, add a `CHANGELOG.md` section, and merge to `main`.
+2. Tag the merge commit and push the tag:
+
+   ```powershell
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
+
+3. The workflow runs the tests, builds the zip and `SHA256SUMS.txt`, attests their provenance, and publishes the release with notes taken from the changelog.
+4. Scan the published zip on VirusTotal and add the report link to the release notes.
+
+The local `package-release.ps1` run above is for testing the package only.
 
 ## Manual Smoke Test
 

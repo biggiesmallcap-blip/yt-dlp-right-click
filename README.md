@@ -56,6 +56,8 @@ Everything is installed to `%LOCALAPPDATA%\yt-dlp-right-click`, so the folder yo
 
 **Uninstalling:** run `Uninstall.cmd`, then click **Remove** in `chrome://extensions`. Your downloaded files are kept.
 
+**Is it safe?** Releases are built by GitHub Actions straight from this repository's source, never on a personal PC. Each release has a `SHA256SUMS.txt`, a signed provenance record you can check with `gh attestation verify <zip> --repo biggiesmallcap-blip/yt-dlp-right-click`, and a VirusTotal scan linked in its notes. Windows may still show "Windows protected your PC" because the helper isn't code-signed; see [SECURITY.md](SECURITY.md) for exactly what it can and can't do.
+
 **Why the "Developer mode" step?** Extensions not sold through the Chrome Web Store can only be added this way. The helper program Setup installs is what lets the extension start yt-dlp; Chrome extensions can't run programs on their own.
 
 ## Presets

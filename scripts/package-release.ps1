@@ -90,5 +90,11 @@ Compress-Archive -Path $PackageStage -DestinationPath $PackageZip -Force
 
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
 
-Write-Host "Release artifact:"
+# Same "<sha256>  <name>" format as yt-dlp's SHA2-256SUMS.
+$SumsPath = Join-Path $DistRoot "SHA256SUMS.txt"
+$hash = (Get-FileHash -LiteralPath $PackageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText($SumsPath, "$hash  $(Split-Path -Leaf $PackageZip)`n", (New-Object Text.UTF8Encoding $false))
+
+Write-Host "Release artifacts:"
 Write-Host "  $PackageZip"
+Write-Host "  $SumsPath"

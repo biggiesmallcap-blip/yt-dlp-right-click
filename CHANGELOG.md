@@ -9,6 +9,11 @@
 - The extension fills in empty yt-dlp, ffmpeg, and download folder settings from the helper, and opens Settings on first install.
 - Settings opens with a Status box that says "Ready" or exactly what to do next.
 
+### Security
+
+- Releases are now built by GitHub Actions from the tagged source, with a signed build-provenance attestation (`gh attestation verify`), instead of on a personal machine.
+- Each release ships a `SHA256SUMS.txt` for the zip.
+
 ### Changed
 
 - The extension has a fixed ID (`kndejcjfodoflkabelfaeiegiaofgjgm`, set by the manifest `key`), so it no longer changes when loaded from a different folder and nobody has to copy an ID into the installer. Upgrading from 1.0/1.1 means loading it once as a new extension.
