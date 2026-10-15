@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.2.0] - 2026-10-15
+
+### Added
+
+- One-step install: a single `yt-dlp-right-click-v1.2.0-windows.zip` with `Setup.cmd`. Setup asks where to install (default `%LOCALAPPDATA%\yt-dlp-right-click`, any user-writable folder allowed) and where downloads go, with Enter keeping the default and **B** opening a folder picker. It remembers the install location for updates and Uninstall.
+- Setup finds existing yt-dlp and ffmpeg (PATH, previous install, common folders on every drive), shows their versions, and offers to reuse them, download a fresh copy, browse to another copy, or skip. Very old ffmpeg builds default to a fresh download. Downloads come from official GitHub releases and are verified against their SHA-256 checksums; Deno is only offered when neither Deno nor Node.js is installed.
+- ffmpeg downloads use the "shared" build: 85 MB download and 186 MB installed instead of 191 MB and 338 MB.
+- Registers the helper for Chrome and Edge and opens `chrome://extensions` with the folder path already on the clipboard.
+- `Uninstall.cmd` removes the helper registration and the install folder (wherever it is); downloads and tools Setup only pointed at are kept.
+- Settings has **Open download folder** and **Open install folder** buttons, and Check setup warns about very old ffmpeg builds.
+- The extension fills in empty yt-dlp, ffmpeg, and download folder settings from the helper, and opens Settings on first install.
+- Settings opens with a Status box that says "Ready" or exactly what to do next.
+
+### Security
+
+- Releases are now built by GitHub Actions from the tagged source, with a signed build-provenance attestation (`gh attestation verify`), instead of on a personal machine.
+- Each release ships a `SHA256SUMS.txt` for the zip.
+
+### Changed
+
+- The extension has a fixed ID (`kndejcjfodoflkabelfaeiegiaofgjgm`, set by the manifest `key`), so it no longer changes when loaded from a different folder and nobody has to copy an ID into the installer. Upgrading from 1.0/1.1 means loading it once as a new extension.
+- Error messages talk about "the helper program" and point to `Setup.cmd` instead of command lines.
+- The release is one zip instead of separate extension and native host zips.
+
+### Fixed
+
+- "The native host is installed for a different extension ID" after loading the extension from a new folder.
+- The popup said "Finish setup: add the yt-dlp location" when the real problem was a missing helper program.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added

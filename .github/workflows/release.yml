@@ -1,0 +1,95 @@
+name: Release
+
+# Pushing a tag like v1.2.0 builds the release on GitHub's runners from the
+# tagged source, attests where the files came from, and publishes them, so no
+# release binary is ever built on a personal machine.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write       # create the GitHub release
+  id-token: write       # sign the provenance attestation
+  attestations: write   # store the attestation
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          node --test tests/shared.test.mjs
+          if ($LASTEXITCODE) { exit 1 }
+          Push-Location native-host
+          cargo test --all-targets --all-features
+          if ($LASTEXITCODE) { exit 1 }
+          Pop-Location
+
+      - name: Build the release zip
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          .\scripts\package-release.ps1 -Version $version
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/${{ env.VERSION }}/*.zip
+            native-host/target/release/ytdlp_native_host.exe
+
+      - name: Write release notes
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $start = $changelog.IndexOf("## [$version]")
+          if ($start -lt 0) { throw "CHANGELOG.md has no section for $version." }
+          $section = $changelog.Substring($start)
+          $next = $section.IndexOf("`n## [", 5)
+          if ($next -gt 0) { $section = $section.Substring(0, $next) }
+          $section = ($section -split "`n", 2)[1].Trim()
+          $zip = "yt-dlp-right-click-v$version-windows.zip"
+          $notes = @"
+          ## Install
+
+          1. Download **$zip** below and unzip it.
+          2. Double-click **Setup.cmd** and press Enter when it offers to download yt-dlp, ffmpeg, and Deno.
+          3. In the Chrome tab it opens: turn on **Developer mode**, click **Load unpacked**, press **Ctrl+V**, then **Select Folder**.
+
+          Updating: run the new Setup.cmd, then click reload on the extension in ``chrome://extensions``.
+
+          ## Verify this download
+
+          This release was built by GitHub Actions from the tagged source, not on a personal computer.
+
+          - Checksum: compare ``Get-FileHash $zip`` with **SHA256SUMS.txt**.
+          - Provenance: ``gh attestation verify $zip --repo ${{ github.repository }}``
+
+          $section
+          "@
+          [IO.File]::WriteAllText("$PWD\release-notes.md", $notes)
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:VERSION
+          gh release create "${{ github.ref_name }}" `
+            --title "yt-dlp Right Click v$version" `
+            --notes-file release-notes.md `
+            --verify-tag `
+            "dist/$version/yt-dlp-right-click-v$version-windows.zip" `
+            "dist/$version/SHA256SUMS.txt"

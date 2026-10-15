@@ -1,121 +1,51 @@
 # Install
 
-These instructions target Google Chrome on Windows.
+## For users
 
-## Prerequisites
+1. Download `yt-dlp-right-click-v<version>-windows.zip` from the [latest release](https://github.com/biggiesmallcap-blip/yt-dlp-right-click/releases/latest) and unzip it.
+2. Double-click `Setup.cmd`. If Windows says "Windows protected your PC", click **More info**, then **Run anyway**. Press Enter when it offers to download missing tools.
+3. In the Chrome tab Setup opens: turn on **Developer mode**, click **Load unpacked**, press **Ctrl+V**, then **Select Folder**.
 
-Release users need:
+The extension's Settings page then shows **Ready**. That's the whole install.
 
-- Windows
-- Google Chrome
-- `yt-dlp.exe`
-- `ffmpeg.exe` for MP4 merge and audio extraction presets
-- a local download folder
+What Setup does:
 
-The release ZIPs include the Chrome extension files and a prebuilt `ytdlp_native_host.exe`. They do not include `yt-dlp.exe` or `ffmpeg.exe`.
+- Asks where to install (default `%LOCALAPPDATA%\yt-dlp-right-click`; any folder you can write to, not Program Files) and where downloads go (default `Downloads\yt-dlp`). Enter keeps the default, **B** opens a folder picker, or paste a path.
+- Copies the extension and the helper program into the install folder, and remembers the location in `HKCU\Software\yt-dlp-right-click` for updates and Uninstall.
+- Looks for yt-dlp and ffmpeg (previous install, PATH, and folders like `X:\yt-dlp` and `X:\Tools` on every drive), shows their versions, and offers to reuse them. Otherwise it offers to download them into the install folder's `tools`, checking each against its official SHA-256 checksum. Deno is offered only if neither Deno nor Node.js is installed.
+- Registers the helper for Chrome and Edge (per user, in `HKCU`).
+- Writes suggested settings (tool locations and download folder) that the extension picks up automatically.
 
-## Public Build Install
+Options for `setup.ps1`: `-InstallDir <folder>` and `-DownloadDir <folder>` to skip those questions, `-NoDownload` to never download tools, and `-Yes` to accept every suggestion without asking.
 
-For public releases, users should install in this order:
+### Updating
 
-1. Install the Chrome extension.
-2. Download the Windows native host package.
-3. Double-click `install-native-host.cmd`.
-4. Open the extension Settings page and click `Check setup`.
+Run the new version's `Setup.cmd`, then click the reload arrow on the extension's card in `chrome://extensions`.
 
-The Windows native host package includes a prebuilt `ytdlp_native_host.exe`. Release users do not need Rust, Cargo, or `cargo build`.
+### Uninstalling
 
-If the release has a published Chrome Web Store extension ID embedded, users do not need to copy an ID or run a PowerShell command manually. Source and GitHub ZIP builds prompt for the unpacked extension ID when needed.
+Run `Uninstall.cmd`, then click **Remove** on the extension in `chrome://extensions`. Downloaded media is never deleted.
 
-Chrome extensions cannot include and execute arbitrary local programs directly, so the native host must still be installed once on the local machine. The installer writes the native messaging manifest and user-level Chrome registry entry.
+### If something is wrong
 
-After install, the extension still needs paths to `yt-dlp.exe`, `ffmpeg.exe`, and the download folder. Configure those in the extension settings page.
+Open the extension's Settings. The Status box at the top says what's missing, and **Check setup** runs yt-dlp and ffmpeg once and reports their versions.
 
-## Source Build Install
+## For developers
 
-These steps are only for development or unpacked source builds. Use the public native host ZIP if you just want to install the release.
+1. Build the helper:
 
-### 1. Build the Native Host
+   ```powershell
+   cd native-host
+   cargo build --release
+   cd ..
+   ```
 
-From the project root:
+2. Register it for the extension (no ID needed; it is fixed by the manifest `key`):
 
-```powershell
-cd native-host
-cargo build --release
-cd ..
-```
+   ```powershell
+   .\scripts\install-native-host.ps1
+   ```
 
-The host executable will be:
+3. In `chrome://extensions`, enable Developer mode and **Load unpacked** the `extension` folder.
 
-```text
-native-host\target\release\ytdlp_native_host.exe
-```
-
-### 2. Load the Chrome Extension
-
-1. Open Chrome.
-2. Go to `chrome://extensions`.
-3. Enable `Developer mode`.
-4. Click `Load unpacked`.
-5. Select the project `extension` folder.
-6. Open the extension settings page and copy the displayed Extension ID.
-
-### 3. Register the Native Host
-
-Easiest source-build path: double-click:
-
-```text
-scripts\install-native-host.cmd
-```
-
-Paste the Extension ID when prompted.
-
-Alternative command-line path from the project root:
-
-```powershell
-.\scripts\install-native-host.ps1 -ExtensionId "<your-extension-id>"
-```
-
-If the popup shows `Specified native messaging host not found`, this step has not been run successfully for the loaded extension ID. Copy the ID from `chrome://extensions` and rerun the command.
-
-If the popup shows `Access to the specified native messaging host is forbidden`, the native host was registered for a different extension ID. Rerun the same command with the exact current ID.
-
-The script writes:
-
-- `native-host\com.ytdlp_right_click.native_host.json`
-- `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.ytdlp_right_click.native_host`
-
-No administrator privileges are required for the user-level registration.
-
-### 4. Configure the Extension
-
-Open the extension options page and set:
-
-- `yt-dlp.exe path or folder`, for example `C:\Tools\yt-dlp\yt-dlp.exe` or `C:\Tools\yt-dlp`
-- `ffmpeg path or folder`, for example `C:\Tools\ffmpeg\bin`
-- `download folder`, for example `D:\Downloads\yt-dlp`
-- `JavaScript runtime`, normally leave this as `Automatic`
-- `cookies`, normally `Only when a site asks for login`; set a cookies.txt file if Chrome cookies cannot be read
-- `Keep yt-dlp up to date`, on by default; turn it off if another package manager owns yt-dlp
-
-Click `Check setup`.
-
-For YouTube JavaScript runtime warnings, install a supported runtime such as Node.js or Deno once. Leave the extension setting on `Auto`; the native host checks PATH and common Windows install folders. The manual runtime path is only for unusual installs.
-
-### 5. Use It
-
-Right-click a page, link, selected URL, video, image, or audio element and choose a `yt-dlp` preset.
-
-If a site blocks or hides the right-click target, click the extension button, choose a preset, then click `Download this site`.
-
-The extension badge shows the number of running jobs. Click the extension icon to view live output and recent logs.
-
-## Uninstall
-
-From the project root:
-
-```powershell
-.\scripts\uninstall-native-host.ps1
-```
-
-Then remove the unpacked extension from `chrome://extensions`.
+The helper suggests tool paths it finds on `PATH`, so a source install usually fills its own settings too. `.\scripts\uninstall-native-host.ps1` removes the registration.

@@ -30,6 +30,17 @@ jobs:
           python -m json.tool extension\manifest.json > $null
           python -m json.tool native-host\com.ytdlp_right_click.native_host.template.json > $null
 
+      - name: Parse install scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($script in Get-ChildItem scripts\*.ps1) {
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "$($script.Name): $_" } }
+          }
+          if ($failed) { exit 1 }
+
       - name: Run extension unit tests
         run: node --test tests/shared.test.mjs
 

@@ -197,11 +197,12 @@ function renderNotices() {
     notices.push({ tone: "bad", text: flash, action: "dismiss", label: "Dismiss" });
   }
 
+  // The helper comes first: once it runs, it fills in the missing paths itself.
   const missing = missingSettings(settings, null);
-  if (missing.length) {
+  if (hostInfo && !hostInfo.ok) {
+    notices.push({ tone: "bad", text: hostInfo.message, action: "settings", label: "Help" });
+  } else if (missing.length && hostInfo) {
     notices.push({ tone: "warn", text: `Finish setup: add the ${missing.join(", ")}.`, action: "settings", label: "Open settings" });
-  } else if (hostInfo && !hostInfo.ok) {
-    notices.push({ tone: "bad", text: hostInfo.message, action: "settings", label: "Fix" });
   } else if (hostInfo?.outdated) {
     notices.push({
       tone: "warn",

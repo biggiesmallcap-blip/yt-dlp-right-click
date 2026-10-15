@@ -110,6 +110,20 @@ struct VersionResponse {
     host_version: &'static str,
     protocol: u32,
     presets: Vec<&'static str>,
+    defaults: Defaults,
+}
+
+/// Suggested settings the extension fills into empty fields, so a fresh install
+/// needs no typing. Comes from the `config.json` written by Setup next to the
+/// host executable, falling back to tools found on this PC.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+struct Defaults {
+    #[serde(default, rename = "ytDlpPath")]
+    yt_dlp_path: String,
+    #[serde(default, rename = "ffmpegPath")]
+    ffmpeg_path: String,
+    #[serde(default, rename = "downloadDir")]
+    download_dir: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -360,6 +374,7 @@ fn main() {
         "validate" => outbox.send(&validate_settings(&message.settings, true, true)),
         "updateYtDlp" => outbox.send(&update_yt_dlp(&message.settings)),
         "openPath" => outbox.send(&open_path(&message.settings, &message.path)),
+        "openInstallFolder" => outbox.send(&open_install_folder()),
         "start" => {
             let job_id = message.job_id.clone();
             if let Err(error) = handle_start(message, &outbox) {
@@ -385,6 +400,82 @@ fn version_response() -> VersionResponse {
         host_version: HOST_VERSION,
         protocol: PROTOCOL_VERSION,
         presets: PRESET_IDS.to_vec(),
+        defaults: suggested_defaults(),
+    }
+}
+
+/// `<install>\host\ytdlp_native_host.exe` -> `<install>`.
+fn install_root() -> Option<PathBuf> {
+    Some(env::current_exe().ok()?.parent()?.parent()?.to_path_buf())
+}
+
+fn read_setup_config(path: &Path) -> Defaults {
+    const MAX_CONFIG_BYTES: u64 = 64 * 1024;
+    let too_big = fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_CONFIG_BYTES)
+        .unwrap_or(true);
+    if too_big {
+        return Defaults::default();
+    }
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| {
+            // PowerShell may write a UTF-8 byte order mark.
+            let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+            serde_json::from_slice(bytes).ok()
+        })
+        .unwrap_or_default()
+}
+
+fn suggested_defaults() -> Defaults {
+    let config = env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("config.json")))
+        .map(|path| read_setup_config(&path))
+        .unwrap_or_default();
+    let tools = install_root().map(|root| root.join("tools"));
+    let existing = |value: &str| -> Option<String> {
+        let path = Path::new(value.trim());
+        (path.is_absolute() && path.exists()).then(|| value.trim().to_string())
+    };
+    let first_file = |candidates: Vec<PathBuf>| -> String {
+        candidates
+            .into_iter()
+            .find(|path| path.is_file())
+            .map(|path| display_path(&path))
+            .unwrap_or_default()
+    };
+
+    let yt_dlp_path = existing(&config.yt_dlp_path).unwrap_or_else(|| {
+        first_file(
+            tools
+                .iter()
+                .map(|tools| tools.join("yt-dlp.exe"))
+                .chain(find_executable_on_path("yt-dlp.exe"))
+                .collect(),
+        )
+    });
+    let ffmpeg_path = existing(&config.ffmpeg_path).unwrap_or_else(|| {
+        first_file(
+            tools
+                .iter()
+                .map(|tools| tools.join("ffmpeg").join("bin").join("ffmpeg.exe"))
+                .chain(find_executable_on_path("ffmpeg.exe"))
+                .collect(),
+        )
+    });
+    let download_dir = if Path::new(config.download_dir.trim()).is_absolute() {
+        config.download_dir.trim().to_string()
+    } else {
+        env::var_os("USERPROFILE")
+            .map(|home| display_path(&PathBuf::from(home).join("Downloads").join("yt-dlp")))
+            .unwrap_or_default()
+    };
+
+    Defaults {
+        yt_dlp_path,
+        ffmpeg_path,
+        download_dir,
     }
 }
 
@@ -1108,7 +1199,14 @@ fn validate_settings(settings: &Settings, require_ffmpeg: bool, probe: bool) -> 
     if require_ffmpeg {
         match resolve_ffmpeg_path(&settings.ffmpeg_path) {
             Ok(path) if probe => match probe_ffmpeg_version(&path) {
-                Ok(version) => ffmpeg_version = version,
+                Ok(version) => {
+                    if ffmpeg_major_version(&version).is_some_and(|major| major < 5) {
+                        warnings.push(format!(
+                            "ffmpeg {version} is very old and fails on some formats. Run Setup again and let it download a current ffmpeg."
+                        ));
+                    }
+                    ffmpeg_version = version;
+                }
                 Err(error) => warnings.push(format!("ffmpeg.exe could not be run: {error}")),
             },
             Ok(_) => {}
@@ -1157,6 +1255,36 @@ fn probe_yt_dlp_version(path: &Path) -> Result<String, String> {
         Ok(version.chars().take(64).collect())
     } else {
         Err(format!("exit {}", code.unwrap_or(-1)))
+    }
+}
+
+/// Major version of a release-style ffmpeg version string ("7.0.2-full_build",
+/// "n4.3.1-26-g..."). Nightly "N-12345-g..." builds have none.
+fn ffmpeg_major_version(version: &str) -> Option<u32> {
+    let digits: String = version
+        .strip_prefix('n')
+        .unwrap_or(version)
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
+/// Opens the folder Setup installed into. The target is fixed by where this
+/// program lives, so the extension cannot point it anywhere else.
+fn open_install_folder() -> OpenPathResponse {
+    let folder = env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
+        .filter(|folder| folder.is_dir());
+    let result = match folder {
+        Some(folder) => open_in_explorer(&folder, false),
+        None => Err("Could not find the install folder.".to_string()),
+    };
+    OpenPathResponse {
+        message_type: "openPathResult",
+        ok: result.is_ok(),
+        message: result.err().unwrap_or_else(|| "Opened folder.".to_string()),
     }
 }
 
@@ -1355,6 +1483,10 @@ fn common_runtime_paths(runtime: &str) -> Vec<PathBuf> {
                 }
             }
             "deno" => {
+                // Setup puts Deno here when no runtime was installed.
+                if let Some(root) = install_root() {
+                    paths.push(root.join("tools").join("deno").join("deno.exe"));
+                }
                 if let Some(home) = env_path("USERPROFILE") {
                     paths.push(home.join(".deno").join("bin").join("deno.exe"));
                 }
@@ -2629,6 +2761,45 @@ mod tests {
         assert!(!cookie_read_failed(&[
             "ERROR: Sign in to confirm you are not a bot".to_string()
         ]));
+    }
+
+    #[test]
+    fn reads_setup_config_with_or_without_bom() {
+        let root = temp_root("config");
+        let path = root.join("config.json");
+        let json = r#"{"ytDlpPath":"C:\\Tools\\yt-dlp.exe","downloadDir":"D:\\dl"}"#;
+
+        fs::write(&path, json).unwrap();
+        let plain = read_setup_config(&path);
+        assert_eq!(plain.yt_dlp_path, r"C:\Tools\yt-dlp.exe");
+        assert_eq!(plain.download_dir, r"D:\dl");
+        assert_eq!(plain.ffmpeg_path, "");
+
+        fs::write(
+            &path,
+            [b"\xEF\xBB\xBF".as_slice(), json.as_bytes()].concat(),
+        )
+        .unwrap();
+        assert_eq!(read_setup_config(&path), plain);
+
+        fs::write(&path, "not json").unwrap();
+        assert_eq!(read_setup_config(&path), Defaults::default());
+        assert_eq!(
+            read_setup_config(&root.join("missing.json")),
+            Defaults::default()
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_ffmpeg_major_versions() {
+        assert_eq!(ffmpeg_major_version("n4.3.1-26-gca55240b8c"), Some(4));
+        assert_eq!(
+            ffmpeg_major_version("7.0.2-full_build-www.gyan.dev"),
+            Some(7)
+        );
+        assert_eq!(ffmpeg_major_version("N-127541-gec33c154fa-20261014"), None);
     }
 
     #[test]

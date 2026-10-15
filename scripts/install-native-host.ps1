@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $HostName = "com.ytdlp_right_click.native_host"
-$PublishedExtensionId = ""
+$PublishedExtensionId = "kndejcjfodoflkabelfaeiegiaofgjgm"
 
 $SourceProjectRoot = Split-Path -Parent $PSScriptRoot
 $PackagedHostExePath = Join-Path $PSScriptRoot "ytdlp_native_host.exe"
@@ -100,4 +100,4 @@ Write-Host "  $ManifestPath"
 Write-Host "Allowed extension:"
 Write-Host "  chrome-extension://$ExtensionId/"
 Write-Host ""
-Write-Host "Next: reload the extension in Chrome, then click Test native host and settings."
+Write-Host "Next: reload the extension in Chrome, then open its Settings and click Check setup."

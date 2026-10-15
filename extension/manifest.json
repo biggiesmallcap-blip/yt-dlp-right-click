@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqC1vG9mR3TS71VasU9NQExIu36f8CcVtvsImiIivH7YBB8HNHx+f3FHPVXeIGnLsMmudQJyYdKnV3OaPyRv5D8AucG6o2SIJNya0pYw64p3i7HUMurxqql64TQJlKBf8mSaE6GLf3/wnWvBfPMt4JXi0ZDgtPtF8Es6osIBz9lOAIQhYGtMbUkNjRavD4OgUeVtZ5QSqPrbBD6gvMLrbm8kY9l/54f6QVs6X9NJ3B1Gu9Ejv2sux2UUk5URRTiJYlATawZibw3gQmu2oZOQZcdGr5wsDB5h3j35OV//XJ7fMUaDbZkhe5v1arajS0fp+5YagyU7/RNhynOWDikZgNwIDAQAB",
   "name": "yt-dlp Right Click",
   "description": "Send page, link, selected-text, and media URLs to local yt-dlp presets.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",

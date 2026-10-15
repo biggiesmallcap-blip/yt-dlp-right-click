@@ -70,31 +70,31 @@ if (Test-Path -LiteralPath $DistRoot) {
     Remove-Item -LiteralPath $DistRoot -Recurse -Force
 }
 
-$ExtensionStage = Join-Path $StageRoot "extension"
-$NativeStage = Join-Path $StageRoot "native-host"
-New-Item -ItemType Directory -Path $ExtensionStage,$NativeStage -Force | Out-Null
+# One self-contained folder: users unzip it and double-click Setup.cmd.
+$PackageName = "yt-dlp-right-click-v$Version"
+$PackageStage = Join-Path $StageRoot $PackageName
+$ExtensionStage = Join-Path $PackageStage "extension"
+$HostStage = Join-Path $PackageStage "host"
+New-Item -ItemType Directory -Path $ExtensionStage, $HostStage -Force | Out-Null
 
 Copy-Item -Path (Join-Path $ProjectRoot "extension\*") -Destination $ExtensionStage -Recurse
-Copy-Item -LiteralPath $HostExePath -Destination (Join-Path $NativeStage "ytdlp_native_host.exe")
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\install-native-host.ps1") -Destination $NativeStage
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\install-native-host.cmd") -Destination $NativeStage
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\uninstall-native-host.ps1") -Destination $NativeStage
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "native-host\com.ytdlp_right_click.native_host.template.json") -Destination $NativeStage
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $NativeStage
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "SECURITY.md") -Destination $NativeStage
+Copy-Item -LiteralPath $HostExePath -Destination (Join-Path $HostStage "ytdlp_native_host.exe")
+foreach ($script in "Setup.cmd", "setup.ps1", "Uninstall.cmd", "uninstall.ps1") {
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\$script") -Destination $PackageStage
+}
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\package-README.txt") -Destination (Join-Path $PackageStage "README.txt")
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "SECURITY.md") -Destination $PackageStage
 
-$NativeDocs = Join-Path $NativeStage "docs"
-New-Item -ItemType Directory -Path $NativeDocs -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\INSTALL.md") -Destination $NativeDocs
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\RELEASE.md") -Destination $NativeDocs
-
-$ExtensionZip = Join-Path $DistRoot "yt-dlp-right-click-extension-v$Version.zip"
-$NativeZip = Join-Path $DistRoot "yt-dlp-right-click-native-host-windows-v$Version.zip"
-Compress-Archive -Path (Join-Path $ExtensionStage "*") -DestinationPath $ExtensionZip -Force
-Compress-Archive -Path (Join-Path $NativeStage "*") -DestinationPath $NativeZip -Force
+$PackageZip = Join-Path $DistRoot "$PackageName-windows.zip"
+Compress-Archive -Path $PackageStage -DestinationPath $PackageZip -Force
 
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
 
+# Same "<sha256>  <name>" format as yt-dlp's SHA2-256SUMS.
+$SumsPath = Join-Path $DistRoot "SHA256SUMS.txt"
+$hash = (Get-FileHash -LiteralPath $PackageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText($SumsPath, "$hash  $(Split-Path -Leaf $PackageZip)`n", (New-Object Text.UTF8Encoding $false))
+
 Write-Host "Release artifacts:"
-Write-Host "  $ExtensionZip"
-Write-Host "  $NativeZip"
+Write-Host "  $PackageZip"
+Write-Host "  $SumsPath"

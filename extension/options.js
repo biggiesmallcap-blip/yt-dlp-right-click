@@ -91,6 +91,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   // but never touch the field being edited.
   if (changes.settings?.newValue) {
     const next = normalizeSettings(changes.settings.newValue);
+    // Paths the helper filled in automatically appear without a reload.
+    for (const key of TEXT_FIELDS) {
+      if (document.activeElement !== $(key) && !$(key).value && next[key]) $(key).value = next[key];
+    }
     for (const key of SELECT_FIELDS) {
       if (document.activeElement !== $(key)) $(key).value = next[key];
     }
@@ -135,6 +139,18 @@ $("check").addEventListener("click", async () => {
     refreshHostState(true);
   }
 });
+
+for (const [id, type] of [["open-downloads", "openDownloadFolder"], ["open-install", "openInstallFolder"]]) {
+  $(id).addEventListener("click", async () => {
+    try {
+      await saveSettings();
+      const response = await chrome.runtime.sendMessage({ type });
+      if (!response?.ok) showSaveState(response?.message || "Could not open the folder.", false);
+    } catch (error) {
+      showSaveState(error.message || String(error), false);
+    }
+  });
+}
 
 // Updates -----------------------------------------------------------------
 
@@ -212,16 +228,22 @@ async function refreshHostState(force) {
     const info = await chrome.runtime.sendMessage({ type: "getHostInfo", force });
     if (!info?.ok) {
       renderResult(box, "bad", [
-        paragraph(info?.message || "The native host did not respond."),
-        paragraph("Copy the install command below and run it from the project folder, then reload this page.")
+        paragraph(info?.message || "The helper program did not respond."),
+        paragraph("Open the yt-dlp Right Click download, double-click Setup.cmd, then reload this page. Setup takes care of everything else.")
       ]);
     } else if (info.outdated) {
       renderResult(box, "warn", [
-        paragraph(`Installed: v${info.hostVersion}. This extension is v${info.extensionVersion}, so some presets will fail until the host is updated.`),
-        paragraph("From source: cd native-host, then cargo build --release. From a release: run the newest install-native-host.cmd.")
+        paragraph(`The helper program is v${info.hostVersion}, older than this extension (v${info.extensionVersion}), so some formats won't work.`),
+        paragraph("Run Setup.cmd from the latest download to update it.")
       ]);
     } else {
-      renderResult(box, "good", [paragraph(`Installed and responding (v${info.hostVersion}).`)]);
+      const { settings } = await chrome.storage.local.get({ settings: {} });
+      const ready = settings.ytDlpPath && settings.ffmpegPath && settings.downloadDir;
+      renderResult(box, ready ? "good" : "warn", [
+        paragraph(ready
+          ? `Ready. Right-click any video or link and choose yt-dlp. (Helper v${info.hostVersion})`
+          : "The helper is installed, but yt-dlp or ffmpeg wasn't found. Run Setup.cmd again to download them, or fill in the paths below.")
+      ]);
     }
   } catch (error) {
     renderResult(box, "bad", [paragraph(error.message || String(error))]);
