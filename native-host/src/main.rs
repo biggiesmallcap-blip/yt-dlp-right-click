@@ -446,9 +446,22 @@ fn handle_start(message: IncomingMessage, outbox: &Outbox) -> Result<(), String>
         }
     }
 
+    if !result.success && !cancelled && output_suggests_old_yt_dlp(&result.output) {
+        let hint = "Fix: this yt-dlp is too old for the options this extension uses. Open Settings and click Update yt-dlp now.".to_string();
+        outbox.output(&job_id, "hint", hint.clone());
+        append_host_log(&plan.log_path, &hint);
+    }
+
     let files = final_output_paths_since(&result.output, result.started_at, &plan.target_dir);
 
-    if !result.success && !cancelled && !files.is_empty() {
+    // Only trust files yt-dlp itself reported as final (after post-processing).
+    // A fallback "Destination:" path can be an unconverted intermediate, e.g.
+    // the .mp4 left behind when MP3 extraction fails.
+    let confirmed = result
+        .output
+        .iter()
+        .any(|line| line.starts_with(FILE_MARKER));
+    if !result.success && !cancelled && confirmed && !files.is_empty() {
         let line = format!(
             "yt-dlp returned exit {}, but {} output file(s) exist. Marking complete with warnings.",
             result.exit_code,
@@ -690,8 +703,13 @@ fn run_ytdlp_attempt(
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .current_dir(&plan.target_dir);
+        .stderr(Stdio::piped());
+    // Output location comes from the absolute -P argument. Windows rejects a
+    // working directory longer than MAX_PATH even with a \\?\ prefix, so do
+    // not run inside a possibly deep download folder.
+    if let Some(parent) = plan.yt_dlp_path.parent() {
+        command.current_dir(parent);
+    }
 
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -1371,6 +1389,13 @@ fn output_suggests_cookies(output: &[String]) -> bool {
     ]
     .iter()
     .any(|needle| combined.contains(needle))
+}
+
+fn output_suggests_old_yt_dlp(output: &[String]) -> bool {
+    output.iter().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("no such option") || lower.contains("unrecognized arguments")
+    })
 }
 
 fn cookie_failure_hint(output: &[String], source: &CookieSource) -> Option<String> {
@@ -2500,6 +2525,16 @@ mod tests {
         ]));
         assert!(!output_suggests_cookies(&[
             "ERROR: Requested format is not available".to_string()
+        ]));
+    }
+
+    #[test]
+    fn detects_options_unknown_to_old_yt_dlp() {
+        assert!(output_suggests_old_yt_dlp(&[
+            "yt-dlp.exe: error: no such option: --progress-delta".to_string()
+        ]));
+        assert!(!output_suggests_old_yt_dlp(&[
+            "ERROR: Unsupported URL".to_string()
         ]));
     }
 

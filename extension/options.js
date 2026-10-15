@@ -84,9 +84,18 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
   if (changes.lastYtDlpUpdateResult) renderYtDlpUpdateState(changes.lastYtDlpUpdateResult.newValue);
   if (changes.extensionUpdate) renderExtensionUpdateState(changes.extensionUpdate.newValue);
-  // Keep the popup's logs toggle in sync without clobbering fields mid-edit.
+  // The popup can change cookie mode and the logs toggle while this page is
+  // open. Mirror those so the next autosave does not write stale values back,
+  // but never touch the field being edited.
   if (changes.settings?.newValue) {
-    $("displayModeAdvanced").checked = changes.settings.newValue.displayMode === "advanced";
+    const next = normalizeSettings(changes.settings.newValue);
+    for (const key of SELECT_FIELDS) {
+      if (document.activeElement !== $(key)) $(key).value = next[key];
+    }
+    for (const key of CHECKBOX_FIELDS) {
+      if (document.activeElement !== $(key)) $(key).checked = Boolean(next[key]);
+    }
+    $("displayModeAdvanced").checked = next.displayMode === "advanced";
   }
 });
 

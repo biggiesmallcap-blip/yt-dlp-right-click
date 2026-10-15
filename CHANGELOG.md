@@ -33,6 +33,10 @@
 - Jobs stayed "running" forever if the native host exited without a final message, or if the extension restarted mid-download.
 - A broken stdout pipe (Chrome closed) aborted the host before it waited for yt-dlp, skipping cleanup and the final log entry.
 - `yt-dlp -U` could hang the extension indefinitely; helper commands now time out.
+- Downloads into a folder whose path is longer than about 260 characters failed to start ("The directory name is invalid"), because yt-dlp was launched with the output folder as its working directory.
+- A failed conversion (for example MP3 extraction) could be reported as "complete" because the leftover intermediate file was taken as the result. Only files yt-dlp confirms as final now count.
+- Two yt-dlp self-updates could run at once (install, settings migration, and the alarm firing together); updates are now serialised and downloads wait for an update in progress.
+- When yt-dlp is too old for the options used, the job now says to update it instead of only showing "no such option".
 
 ### Security
 

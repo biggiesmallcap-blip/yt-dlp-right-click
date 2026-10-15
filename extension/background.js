@@ -310,6 +310,11 @@ async function startNativeJob(preset, url, settings) {
   }, ...jobs]);
   await updateBadge();
 
+  if (ytDlpUpdateInFlight) {
+    await appendJobOutput(jobId, "Waiting for the yt-dlp update to finish...", "hint");
+    await ytDlpUpdateInFlight.catch(() => {});
+  }
+
   let port;
   try {
     port = chrome.runtime.connectNative(HOST_NAME);
@@ -403,32 +408,39 @@ async function handleFinished(jobId, message) {
   }
 }
 
-async function handleNativeDisconnect(jobId, reason) {
-  const jobs = await readJobs();
-  const job = jobs.find((item) => item.id === jobId);
-  if (!job || !ACTIVE_STATUSES.has(job.status)) {
-    return;
-  }
-  await finishJobWithError(
+function handleNativeDisconnect(jobId, reason) {
+  // The host exits right after sending "finished", so this often fires while
+  // that update is still queued. finishJobWithError re-checks the status
+  // inside the storage lock and leaves finished jobs alone.
+  return finishJobWithError(
     jobId,
     reason ? nativeHostErrorMessage(reason) : "The native host stopped without reporting a result. Check the job log."
   );
 }
 
+/** Marks a still-active job as failed. No-op if it already finished. */
 async function finishJobWithError(jobId, message) {
   const now = new Date().toISOString();
-  const jobs = await patchJob(jobId, (job) => ({
-    status: "failed",
-    progress: null,
-    finishedAt: now,
-    output: [...(job.output || []), { stream: "error", line: message, at: now }].slice(-MAX_OUTPUT_LINES)
+  let failed = null;
+  await mutateJobs((jobs) => jobs.map((job) => {
+    if (job.id !== jobId || !ACTIVE_STATUSES.has(job.status)) {
+      return job;
+    }
+    failed = {
+      ...job,
+      status: "failed",
+      progress: null,
+      finishedAt: now,
+      output: [...(job.output || []), { stream: "error", line: message, at: now }].slice(-MAX_OUTPUT_LINES)
+    };
+    return failed;
   }));
+  if (!failed) {
+    return;
+  }
   await bumpUnseenFailures();
   await updateBadge();
-  const job = jobs.find((item) => item.id === jobId);
-  if (job) {
-    notifyFinished(job).catch(() => {});
-  }
+  notifyFinished(failed).catch(() => {});
 }
 
 function nativeHostErrorMessage(message) {
@@ -640,7 +652,23 @@ async function maybeAutoUpdateYtDlp(source) {
   await runYtDlpUpdate(source);
 }
 
-async function runYtDlpUpdate(source) {
+/**
+ * Runs at most one yt-dlp update at a time: install, migration, alarm, and the
+ * manual button can all fire together, and two concurrent self-updates can
+ * corrupt yt-dlp.exe. Downloads wait for an in-flight update before starting.
+ */
+let ytDlpUpdateInFlight = null;
+
+function runYtDlpUpdate(source) {
+  if (!ytDlpUpdateInFlight) {
+    ytDlpUpdateInFlight = runYtDlpUpdateOnce(source).finally(() => {
+      ytDlpUpdateInFlight = null;
+    });
+  }
+  return ytDlpUpdateInFlight;
+}
+
+async function runYtDlpUpdateOnce(source) {
   if (await activeJobCount() > 0) {
     return { ok: false, exitCode: null, output: "Wait for running downloads to finish, then update." };
   }

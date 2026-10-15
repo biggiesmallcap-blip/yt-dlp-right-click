@@ -280,8 +280,21 @@ function updateJobNode(node, job) {
 
   renderMeter(node.querySelector(".meter"), job);
   node.querySelector(".job-summary").textContent = summaryText(job);
-  renderActions(node.querySelector(".job-actions"), job);
-  renderLog(node.querySelector(".job-log"), job);
+
+  // Progress arrives twice a second. Rebuilding buttons that often would
+  // swallow clicks (mousedown and mouseup landing on different nodes), so only
+  // re-render actions and logs when what they show actually changed.
+  const actionsKey = [job.status, job.finalPath, job.finalPathKind, job.url].join("|");
+  if (node.dataset.actionsKey !== actionsKey) {
+    node.dataset.actionsKey = actionsKey;
+    renderActions(node.querySelector(".job-actions"), job);
+  }
+  const output = job.output || [];
+  const logKey = [output.length, output.at(-1)?.at, job.pid, job.exitCode, job.logPath, job.cookiesUsed].join("|");
+  if (node.dataset.logKey !== logKey) {
+    node.dataset.logKey = logKey;
+    renderLog(node.querySelector(".job-log"), job);
+  }
 }
 
 function jobTitle(job) {
@@ -429,9 +442,13 @@ async function handleJobAction(event) {
   const job = jobs.find((item) => item.id === jobId);
   const action = button.dataset.action;
   if (action === "copy") {
-    await navigator.clipboard.writeText(job?.url || "");
-    button.textContent = "Copied";
-    setTimeout(() => { button.textContent = "Copy link"; }, 1200);
+    try {
+      await navigator.clipboard.writeText(job?.url || "");
+      button.textContent = "Copied";
+      setTimeout(() => { button.textContent = "Copy link"; }, 1200);
+    } catch (error) {
+      setFlash(`Could not copy: ${error.message || error}`);
+    }
     return;
   }
 
