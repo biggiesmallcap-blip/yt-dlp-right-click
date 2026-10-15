@@ -1,0 +1,167 @@
+/* Shared design tokens for the popup and settings page. */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-sunk: #eceef1;
+  --ink: #16181d;
+  --ink-soft: #4b5260;
+  --ink-faint: #7a8190;
+  --line: #dde0e5;
+  --line-strong: #c4c9d1;
+  --red: #e0242c;
+  --red-ink: #b3141b;
+  --red-wash: #fde8e8;
+  --blue: #2563eb;
+  --green: #12804c;
+  --green-wash: #e3f4ea;
+  --amber: #a15c00;
+  --amber-wash: #fdf1dc;
+  --segment-off: #dfe2e7;
+  --focus: #2563eb;
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  --radius-control: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b;
+    --surface: #1d2025;
+    --surface-sunk: #24282e;
+    --ink: #eceef2;
+    --ink-soft: #b4bac5;
+    --ink-faint: #858c99;
+    --line: #2c3037;
+    --line-strong: #3b414a;
+    --red: #ff4b52;
+    --red-ink: #ff8a8f;
+    --red-wash: #3a1d20;
+    --blue: #6b9bff;
+    --green: #4fcb8a;
+    --green-wash: #183326;
+    --amber: #f0b45a;
+    --amber-wash: #3a2c14;
+    --segment-off: #2f343c;
+    --focus: #6b9bff;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.4 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+button {
+  min-height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 3px 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--ink-faint);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  border-color: var(--red);
+  background: var(--red);
+  color: #fff;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: var(--red-ink);
+  background: var(--red-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  button.primary {
+    color: #1a0a0b;
+  }
+}
+
+select,
+input[type="text"] {
+  min-height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  background: var(--surface);
+}
+
+.notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-left: 3px solid var(--amber);
+  padding: 8px 10px;
+  background: var(--amber-wash);
+}
+
+.notice.bad {
+  border-left-color: var(--red);
+  background: var(--red-wash);
+}
+
+.notice.good {
+  border-left-color: var(--green);
+  background: var(--green-wash);
+}
+
+.notice p {
+  flex: 1;
+  margin: 0;
+}
+
+.notice button {
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

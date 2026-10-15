@@ -1,405 +1,337 @@
-const HOST_NAME = "com.ytdlp_right_click.native_host";
-const AUTO_UPDATE_SUCCESS_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const AUTO_UPDATE_FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+import {
+  ACTIVE_STATUSES,
+  DEFAULT_SETTINGS,
+  GROUP_TITLES,
+  HOST_NAME,
+  MAX_JOBS,
+  MAX_OUTPUT_LINES,
+  PRESETS,
+  REPO,
+  RELEASES_URL,
+  basename,
+  compareVersions,
+  extractTargetUrl,
+  hostSettings,
+  isHttpUrl,
+  missingSettings,
+  normalizeSettings,
+  presetById
+} from "./shared.js";
 
-const MENU_CONTEXTS = ["page", "link", "selection", "image", "video", "audio"];
+const MAINTENANCE_ALARM = "maintenance";
+const YT_DLP_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const YT_DLP_UPDATE_RETRY_MS = 6 * 60 * 60 * 1000;
+const EXTENSION_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const HOST_INFO_TTL_MS = 10 * 60 * 1000;
+const INSTAGRAM_PATTERNS = ["*://instagram.com/*", "*://*.instagram.com/*"];
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
-const PRESETS = [
-  { id: "video_best_mp4", title: "Best MP4", group: "video", requiresFfmpeg: true },
-  { id: "video_1080_mp4", title: "MP4 up to 1080p", group: "video", requiresFfmpeg: true },
-  { id: "video_720_small_mp4", title: "Small MP4 up to 720p", group: "video", requiresFfmpeg: true },
-  { id: "audio_mp3", title: "MP3", group: "audio", requiresFfmpeg: true },
-  { id: "audio_m4a", title: "M4A", group: "audio", requiresFfmpeg: true },
-  { id: "file_best", title: "Best available file", group: "file", requiresFfmpeg: false },
-  { id: "playlist_video_best_mp4", title: "Playlist best MP4", group: "playlist", requiresFfmpeg: true },
-  { id: "playlist_audio_mp3", title: "Playlist MP3 audio", group: "playlist", requiresFfmpeg: true }
-];
+/** jobId -> native messaging Port for jobs started by this worker instance. */
+const ports = new Map();
+let hostInfoCache = null;
 
-const DEFAULT_SETTINGS = {
-  ytDlpPath: "",
-  ffmpegPath: "",
-  downloadDir: "",
-  cookieMode: "auto",
-  displayMode: "simple",
-  manualPreset: "video_best_mp4",
-  jsRuntime: "auto",
-  jsRuntimePath: "",
-  autoUpdateYtDlp: false,
-  cookiesFromBrowser: false
-};
+// ---------------------------------------------------------------------------
+// Storage. Every job mutation goes through one queue so concurrent native
+// messages cannot read stale state and overwrite each other.
 
-const GROUP_TITLES = {
-  video: "Video",
-  audio: "Audio",
-  file: "File",
-  playlist: "Playlist"
-};
+let storageQueue = Promise.resolve();
+
+function withStorageLock(task) {
+  const run = storageQueue.then(task, task);
+  storageQueue = run.catch(() => {});
+  return run;
+}
+
+async function readJobs() {
+  const { jobs } = await chrome.storage.local.get({ jobs: [] });
+  return Array.isArray(jobs) ? jobs : [];
+}
+
+function mutateJobs(mutator) {
+  return withStorageLock(async () => {
+    const jobs = await readJobs();
+    const next = (await mutator(jobs)) || jobs;
+    await chrome.storage.local.set({ jobs: next.slice(0, MAX_JOBS) });
+    return next;
+  });
+}
+
+function patchJob(jobId, patch) {
+  return mutateJobs((jobs) => jobs.map((job) => (
+    job.id === jobId ? { ...job, ...(typeof patch === "function" ? patch(job) : patch) } : job
+  )));
+}
+
+function appendJobOutput(jobId, line, stream) {
+  return patchJob(jobId, (job) => ({
+    output: [...(job.output || []), { stream, line, at: new Date().toISOString() }].slice(-MAX_OUTPUT_LINES)
+  }));
+}
+
+async function getSettings() {
+  const { settings } = await chrome.storage.local.get({ settings: DEFAULT_SETTINGS });
+  return normalizeSettings(settings);
+}
+
+function updateSettings(patch) {
+  return withStorageLock(async () => {
+    const settings = await getSettings();
+    const next = normalizeSettings({ ...settings, ...patch });
+    await chrome.storage.local.set({ settings: next });
+    return next;
+  });
+}
+
+async function migrateSettings() {
+  const { settings } = await chrome.storage.local.get({ settings: null });
+  await chrome.storage.local.set({ settings: normalizeSettings(settings || {}) });
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await ensureDefaultSettings();
-  createContextMenus();
+  await migrateSettings();
+  await createContextMenus();
+  await ensureAlarm();
   await updateBadge();
-  maybeAutoUpdateYtDlp("installed").catch(() => {});
+  runMaintenance("installed");
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  await markInterruptedJobs();
+  await ensureAlarm();
   await updateBadge();
-  maybeAutoUpdateYtDlp("startup").catch(() => {});
+  runMaintenance("startup");
 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === MAINTENANCE_ALARM) {
+    runMaintenance("alarm");
+  }
+});
+
+// A fresh worker has no open ports, so any job still marked active belongs to
+// a previous worker instance or browser session and can no longer report back.
+markOrphanedJobs().then(updateBadge).catch(() => {});
+
+async function ensureAlarm() {
+  const existing = await chrome.alarms.get(MAINTENANCE_ALARM);
+  if (!existing) {
+    await chrome.alarms.create(MAINTENANCE_ALARM, { delayInMinutes: 1, periodInMinutes: 60 });
+  }
+}
+
+function runMaintenance(source) {
+  maybeAutoUpdateYtDlp(source).catch(() => {});
+  maybeCheckExtensionUpdate(false).catch(() => {});
+}
+
+async function markOrphanedJobs() {
+  const now = new Date().toISOString();
+  await mutateJobs((jobs) => jobs.map((job) => {
+    if (!ACTIVE_STATUSES.has(job.status) || ports.has(job.id)) {
+      return job;
+    }
+    return {
+      ...job,
+      status: "failed",
+      finishedAt: now,
+      progress: null,
+      output: [
+        ...(job.output || []),
+        {
+          stream: "error",
+          line: "Lost contact with this download (browser or extension restarted). It may still have finished; check the folder.",
+          at: now
+        }
+      ].slice(-MAX_OUTPUT_LINES)
+    };
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Context menu
+
+const MENU_CONTEXTS = ["page", "link", "selection", "image", "video", "audio", "frame"];
+
+async function createContextMenus() {
+  await chrome.contextMenus.removeAll();
+  const settings = await getSettings();
+
+  chrome.contextMenus.create({ id: "root", title: "yt-dlp", contexts: MENU_CONTEXTS });
+  chrome.contextMenus.create({
+    id: "repeat",
+    parentId: "root",
+    title: repeatMenuTitle(settings.manualPreset),
+    contexts: MENU_CONTEXTS
+  });
+  chrome.contextMenus.create({ id: "sep", parentId: "root", type: "separator", contexts: MENU_CONTEXTS });
+
+  for (const [group, title] of Object.entries(GROUP_TITLES)) {
+    chrome.contextMenus.create({
+      id: `group_${group}`,
+      parentId: "root",
+      title,
+      contexts: MENU_CONTEXTS,
+      ...(group === "instagram" ? { documentUrlPatterns: INSTAGRAM_PATTERNS } : {})
+    });
+  }
+
+  for (const preset of PRESETS) {
+    chrome.contextMenus.create({
+      id: preset.id,
+      parentId: `group_${preset.group}`,
+      title: preset.title,
+      contexts: MENU_CONTEXTS
+    });
+  }
+}
+
+function repeatMenuTitle(presetId) {
+  const preset = presetById(presetId) || PRESETS[0];
+  return `Download again as ${GROUP_TITLES[preset.group]}: ${preset.title}`;
+}
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   handleContextMenuClick(info, tab).catch((error) => {
-    recordLocalError("Menu action failed", error.message || String(error));
+    recordLocalError("Menu action failed", errorText(error));
   });
 });
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes.settings?.newValue?.autoUpdateYtDlp) {
-    maybeAutoUpdateYtDlp("settings").catch(() => {});
-  }
-});
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "clearCompletedJobs") {
-    clearCompletedJobs().then(() => sendResponse({ ok: true }));
-    return true;
-  }
-
-  if (message?.type === "updateYtDlp") {
-    updateYtDlpManually(message.settings || {})
-      .then((response) => sendResponse(response))
-      .catch((error) => sendResponse({
-        ok: false,
-        exitCode: null,
-        output: error.message || String(error)
-      }));
-    return true;
-  }
-
-  if (message?.type === "retryJob") {
-    retryJob(message.jobId)
-      .then((response) => sendResponse(response))
-      .catch((error) => sendResponse({ ok: false, message: error.message || String(error) }));
-    return true;
-  }
-
-  if (message?.type === "openJobFolder") {
-    openJobFolder(message.jobId)
-      .then((response) => sendResponse(response))
-      .catch((error) => sendResponse({ ok: false, message: error.message || String(error) }));
-    return true;
-  }
-
-  if (message?.type === "startDownload") {
-    startDownload(message.presetId, message.url)
-      .then((response) => sendResponse(response))
-      .catch((error) => sendResponse({ ok: false, message: error.message || String(error) }));
-    return true;
-  }
-
-  if (message?.type === "getPresets") {
-    sendResponse({ ok: true, presets: PRESETS });
-    return false;
-  }
-
-  return false;
-});
-
-async function ensureDefaultSettings() {
-  const current = await chrome.storage.local.get({ settings: DEFAULT_SETTINGS });
-  await chrome.storage.local.set({
-    settings: { ...DEFAULT_SETTINGS, ...current.settings }
-  });
-}
-
-function createContextMenus() {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: "root",
-      title: "yt-dlp",
-      contexts: MENU_CONTEXTS
-    });
-
-    for (const group of Object.keys(GROUP_TITLES)) {
-      chrome.contextMenus.create({
-        id: `group_${group}`,
-        parentId: "root",
-        title: GROUP_TITLES[group],
-        contexts: MENU_CONTEXTS
-      });
-    }
-
-    for (const preset of PRESETS) {
-      chrome.contextMenus.create({
-        id: preset.id,
-        parentId: `group_${preset.group}`,
-        title: preset.title,
-        contexts: MENU_CONTEXTS
-      });
-    }
-  });
-}
 
 async function handleContextMenuClick(info, tab) {
-  const preset = PRESETS.find((item) => item.id === info.menuItemId);
-  if (!preset) {
+  const presetId = info.menuItemId === "repeat"
+    ? (await getSettings()).manualPreset
+    : info.menuItemId;
+  if (!presetById(presetId)) {
     return;
   }
 
   const url = extractTargetUrl(info, tab);
   if (!url) {
-    await recordLocalError("No supported URL", "Right-click a page, link, media item, or selected http(s) URL.");
+    await recordLocalError("Nothing to download here", "Right-click a page, link, video, or a selected http(s) URL.");
     return;
   }
 
-  const response = await startDownload(preset.id, url);
+  const response = await startDownload(presetId, url);
   if (!response.ok) {
-    await recordLocalError("Download failed", response.message || "Could not start download.");
+    await recordLocalError("Download did not start", response.message || "Could not start download.");
   }
 }
 
-function extractTargetUrl(info, tab) {
-  const candidates = [
-    info.linkUrl,
-    isHttpUrl(info.srcUrl) ? info.srcUrl : undefined,
-    firstUrlFromText(info.selectionText),
-    info.pageUrl,
-    tab?.url
-  ];
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.settings) {
+    return;
+  }
+  const before = changes.settings.oldValue || {};
+  const after = changes.settings.newValue || {};
+  if (before.manualPreset !== after.manualPreset) {
+    chrome.contextMenus.update("repeat", { title: repeatMenuTitle(after.manualPreset) }, () => void chrome.runtime.lastError);
+  }
+  if (after.autoUpdateYtDlp && !before.autoUpdateYtDlp) {
+    maybeAutoUpdateYtDlp("settings").catch(() => {});
+  }
+});
 
-  return candidates.find((candidate) => isHttpUrl(candidate)) || "";
-}
+// ---------------------------------------------------------------------------
+// Messages from the popup and options page
 
-function firstUrlFromText(text) {
-  if (!text) {
-    return "";
+const MESSAGE_HANDLERS = {
+  startDownload: (message) => startDownload(message.presetId, message.url),
+  retryJob: (message) => retryJob(message.jobId),
+  cancelJob: (message) => cancelJob(message.jobId),
+  openJobFolder: (message) => openJobPath(message.jobId, "final"),
+  openJobLog: (message) => openJobPath(message.jobId, "log"),
+  removeJob: (message) => removeJob(message.jobId),
+  clearCompletedJobs: () => clearCompletedJobs(),
+  updateYtDlp: () => runYtDlpUpdate("manual"),
+  getHostInfo: (message) => getHostInfo(Boolean(message.force)),
+  checkExtensionUpdate: () => maybeCheckExtensionUpdate(true),
+  popupOpened: () => markFailuresSeen()
+};
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only this extension's own pages may drive local downloads.
+  if (sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) {
+    return false;
+  }
+  const handler = MESSAGE_HANDLERS[message?.type];
+  if (!handler) {
+    return false;
+  }
+  Promise.resolve()
+    .then(() => handler(message))
+    .then((response) => sendResponse(response ?? { ok: true }))
+    .catch((error) => sendResponse({ ok: false, message: errorText(error) }));
+  return true;
+});
+
+// ---------------------------------------------------------------------------
+// Jobs
+
+async function startDownload(presetId, url) {
+  const preset = presetById(presetId);
+  if (!preset) {
+    return { ok: false, message: "Unknown download preset." };
+  }
+  if (!isHttpUrl(url)) {
+    return { ok: false, message: "This tab has no http(s) address to download." };
   }
 
-  const match = text.match(/https?:\/\/[^\s"'<>]+/i);
-  return match ? match[0] : "";
-}
-
-function isHttpUrl(value) {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
-async function maybeAutoUpdateYtDlp(source) {
   const settings = await getSettings();
-  if (!settings.autoUpdateYtDlp || !settings.ytDlpPath) {
-    return;
-  }
-  if (await activeJobCount() > 0) {
-    return;
+  const missing = missingSettings(settings, preset);
+  if (missing.length > 0) {
+    return { ok: false, message: `Set the ${missing.join(", ")} in Settings first.` };
   }
 
-  const state = await chrome.storage.local.get({
-    lastYtDlpUpdateAt: 0,
-    lastYtDlpUpdateAttemptAt: 0
-  });
-  const now = Date.now();
-  if (now - Number(state.lastYtDlpUpdateAt || 0) < AUTO_UPDATE_SUCCESS_INTERVAL_MS) {
-    return;
+  if (settings.manualPreset !== preset.id) {
+    await updateSettings({ manualPreset: preset.id });
   }
-  if (now - Number(state.lastYtDlpUpdateAttemptAt || 0) < AUTO_UPDATE_FAILURE_COOLDOWN_MS) {
-    return;
-  }
-
-  await chrome.storage.local.set({ lastYtDlpUpdateAttemptAt: now });
-
-  try {
-    const response = await sendNativeMessage({
-      type: "updateYtDlp",
-      settings
-    });
-    await chrome.storage.local.set({
-      lastYtDlpUpdateResult: {
-        ok: Boolean(response?.ok),
-        exitCode: response?.exitCode ?? null,
-        output: response?.output || "",
-        source,
-        at: new Date().toISOString()
-      }
-    });
-
-    if (response?.ok) {
-      await chrome.storage.local.set({ lastYtDlpUpdateAt: now });
-    }
-
-    if (!response?.ok) {
-      await recordLocalError("yt-dlp update failed", compactUpdateOutput(response));
-    }
-  } catch (error) {
-    await chrome.storage.local.set({
-      lastYtDlpUpdateResult: {
-        ok: false,
-        exitCode: null,
-        output: error.message || String(error),
-        source,
-        at: new Date().toISOString()
-      }
-    });
-    await recordLocalError("yt-dlp update failed", error.message || String(error));
-  }
+  await startNativeJob(preset, url, settings);
+  return { ok: true };
 }
 
-async function updateYtDlpManually(settings) {
-  if (await activeJobCount() > 0) {
-    return {
-      ok: false,
-      exitCode: null,
-      output: "Wait for active downloads to finish before updating yt-dlp."
-    };
-  }
-
-  try {
-    const response = await sendNativeMessage({
-      type: "updateYtDlp",
-      settings
-    });
-    await chrome.storage.local.set({
-      lastYtDlpUpdateResult: {
-        ok: Boolean(response?.ok),
-        exitCode: response?.exitCode ?? null,
-        output: response?.output || "",
-        source: "manual",
-        at: new Date().toISOString()
-      }
-    });
-    if (response?.ok) {
-      await chrome.storage.local.set({ lastYtDlpUpdateAt: Date.now() });
-    }
-    return response;
-  } catch (error) {
-    return {
-      ok: false,
-      exitCode: null,
-      output: error.message || String(error)
-    };
-  }
-}
-
-function sendNativeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendNativeMessage(HOST_NAME, message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
-function compactUpdateOutput(response) {
-  const output = response?.output || "Unknown update failure.";
-  return `exit ${response?.exitCode ?? "unknown"}\n${output}`.trim();
-}
-
-async function getSettings() {
-  const result = await chrome.storage.local.get({ settings: DEFAULT_SETTINGS });
-  return { ...DEFAULT_SETTINGS, ...result.settings };
-}
-
-function missingSettings(settings, preset) {
-  const missing = [];
-  if (!settings.ytDlpPath) {
-    missing.push("yt-dlp.exe path or folder");
-  }
-  if (preset?.requiresFfmpeg && !settings.ffmpegPath) {
-    missing.push("ffmpeg path");
-  }
-  if (!settings.downloadDir) {
-    missing.push("download folder");
-  }
-  if (settings.jsRuntimePath && (!settings.jsRuntime || settings.jsRuntime === "auto")) {
-    missing.push("specific JavaScript runtime name");
-  }
-  return missing;
-}
-
-async function startNativeJob({ preset, presetTitle, url, settings }) {
+async function startNativeJob(preset, url, settings) {
   const jobId = crypto.randomUUID();
-  const job = {
+  const now = new Date().toISOString();
+  await mutateJobs((jobs) => [{
     id: jobId,
-    preset,
-    presetTitle,
+    preset: preset.id,
+    presetTitle: preset.title,
+    group: preset.group,
     url,
+    title: "",
     status: "starting",
     output: [],
+    progress: null,
     logPath: "",
     finalPath: "",
-    startedAt: new Date().toISOString(),
+    startedAt: now,
     finishedAt: ""
-  };
-
-  await upsertJob(job);
+  }, ...jobs]);
   await updateBadge();
 
   let port;
   try {
     port = chrome.runtime.connectNative(HOST_NAME);
   } catch (error) {
-    await finishJobWithError(jobId, `Native host unavailable: ${error.message || String(error)}`);
+    await finishJobWithError(jobId, nativeHostErrorMessage(errorText(error)));
     return;
   }
+  ports.set(jobId, port);
 
   port.onMessage.addListener((message) => {
     handleNativeMessage(jobId, message).catch((error) => {
-      recordLocalError("Native message handling failed", error.message || String(error));
+      appendJobOutput(jobId, `Could not record host message: ${errorText(error)}`, "error");
     });
   });
 
   port.onDisconnect.addListener(() => {
-    const message = chrome.runtime.lastError?.message;
-    if (message) {
-      handleNativeDisconnect(jobId, message).catch(() => {});
-    }
+    const reason = chrome.runtime.lastError?.message || "";
+    ports.delete(jobId);
+    handleNativeDisconnect(jobId, reason).catch(() => {});
   });
 
-  port.postMessage({
-    type: "start",
-    jobId,
-    preset,
-    url,
-    settings
-  });
-}
-
-function nativeHostErrorMessage(message) {
-  const lower = String(message).toLowerCase();
-  if (lower.includes("specified native messaging host not found")) {
-    return [
-      "Native host is not registered for this Chrome extension ID.",
-      "Fix: open chrome://extensions, copy this extension ID, then run:",
-      ".\\scripts\\install-native-host.ps1 -ExtensionId \"<extension-id>\""
-    ].join("\n");
-  }
-
-  if (lower.includes("access to the specified native messaging host is forbidden")) {
-    return [
-      "Native host is registered, but it does not allow this Chrome extension ID.",
-      "Fix: rerun the installer with the exact extension ID shown in chrome://extensions:",
-      ".\\scripts\\install-native-host.ps1 -ExtensionId \"<extension-id>\""
-    ].join("\n");
-  }
-
-  if (lower.includes("native host has exited")) {
-    return "Native host started but exited early. Open Settings and run the native host test.";
-  }
-
-  return `Native host disconnected: ${message}`;
-}
-
-async function handleNativeDisconnect(jobId, message) {
-  const jobs = await getJobs();
-  const job = jobs.find((item) => item.id === jobId);
-  if (job && (job.status === "complete" || job.status === "failed")) {
-    return;
-  }
-
-  await finishJobWithError(jobId, nativeHostErrorMessage(message));
+  port.postMessage({ type: "start", jobId, preset: preset.id, url, settings: hostSettings(settings) });
 }
 
 async function handleNativeMessage(jobId, message) {
@@ -407,251 +339,369 @@ async function handleNativeMessage(jobId, message) {
     return;
   }
 
-  if (message.type === "started") {
-    await patchJob(jobId, {
-      status: "running",
-      pid: message.pid || 0,
-      logPath: message.logPath || ""
-    });
-    return;
-  }
-
-  if (message.type === "output") {
-    await appendJobOutput(jobId, message.line || "", message.stream || "stdout");
-    if (isChromeCookieCopyError(message.line || "")) {
-      await appendCookieHint(jobId);
-    }
-    return;
-  }
-
-  if (message.type === "finished") {
-    await patchJob(jobId, {
-      status: message.success ? "complete" : "failed",
-      exitCode: message.exitCode,
-      finishedAt: new Date().toISOString(),
-      logPath: message.logPath || "",
-      finalPath: message.finalPath || ""
-    });
-    await updateBadge();
-    return;
-  }
-
-  if (message.type === "error") {
-    await finishJobWithError(jobId, message.message || "Unknown native host error");
+  switch (message.type) {
+    case "started":
+      await patchJob(jobId, {
+        status: "running",
+        pid: Number(message.pid) || 0,
+        logPath: String(message.logPath || ""),
+        cookiesUsed: Boolean(message.cookiesUsed)
+      });
+      return;
+    case "meta":
+      await patchJob(jobId, { title: String(message.title || "").slice(0, 300) });
+      return;
+    case "progress":
+      await patchJob(jobId, { progress: sanitizeProgress(message) });
+      return;
+    case "output":
+      await appendJobOutput(jobId, String(message.line || ""), String(message.stream || "stdout"));
+      return;
+    case "finished":
+      await handleFinished(jobId, message);
+      return;
+    case "error":
+      await finishJobWithError(jobId, explainHostError(String(message.message || "Unknown native host error")));
+      return;
+    default:
   }
 }
 
-function isChromeCookieCopyError(line) {
-  return String(line).toLowerCase().includes("could not copy chrome cookie database");
+function sanitizeProgress(message) {
+  const number = (value) => (Number.isFinite(Number(value)) && value !== null ? Number(value) : null);
+  return {
+    percent: number(message.percent),
+    downloadedBytes: number(message.downloadedBytes),
+    totalBytes: number(message.totalBytes),
+    speed: number(message.speed),
+    eta: number(message.eta),
+    status: String(message.status || "").slice(0, 32),
+    item: number(message.item),
+    itemCount: number(message.itemCount)
+  };
 }
 
-async function appendCookieHint(jobId) {
-  const hint = [
-    "Cookie fix: disable Chrome cookies in Settings for public videos.",
-    "If cookies are required, fully close Chrome first, or use a cookies.txt workflow instead."
-  ].join(" ");
-  const jobs = await getJobs();
+async function handleFinished(jobId, message) {
+  const status = message.cancelled ? "cancelled" : message.success ? "complete" : "failed";
+  const jobs = await patchJob(jobId, {
+    status,
+    progress: null,
+    exitCode: Number.isFinite(Number(message.exitCode)) ? Number(message.exitCode) : null,
+    finishedAt: new Date().toISOString(),
+    logPath: String(message.logPath || ""),
+    finalPath: String(message.finalPath || ""),
+    finalPathKind: message.finalPathKind === "folder" ? "folder" : "file",
+    fileCount: Number(message.fileCount) || 0
+  });
+  if (status === "failed") {
+    await bumpUnseenFailures();
+  }
+  await updateBadge();
   const job = jobs.find((item) => item.id === jobId);
-  const output = job?.output || [];
-  if (!output.some((entry) => entry.line === hint)) {
-    await appendJobOutput(jobId, hint, "hint");
+  if (job && status !== "cancelled") {
+    notifyFinished(job).catch(() => {});
   }
+}
+
+async function handleNativeDisconnect(jobId, reason) {
+  const jobs = await readJobs();
+  const job = jobs.find((item) => item.id === jobId);
+  if (!job || !ACTIVE_STATUSES.has(job.status)) {
+    return;
+  }
+  await finishJobWithError(
+    jobId,
+    reason ? nativeHostErrorMessage(reason) : "The native host stopped without reporting a result. Check the job log."
+  );
+}
+
+async function finishJobWithError(jobId, message) {
+  const now = new Date().toISOString();
+  const jobs = await patchJob(jobId, (job) => ({
+    status: "failed",
+    progress: null,
+    finishedAt: now,
+    output: [...(job.output || []), { stream: "error", line: message, at: now }].slice(-MAX_OUTPUT_LINES)
+  }));
+  await bumpUnseenFailures();
+  await updateBadge();
+  const job = jobs.find((item) => item.id === jobId);
+  if (job) {
+    notifyFinished(job).catch(() => {});
+  }
+}
+
+function nativeHostErrorMessage(message) {
+  const lower = String(message).toLowerCase();
+  if (lower.includes("specified native messaging host not found")) {
+    return "The native host is not installed for this extension. Open Settings and follow the native host setup steps.";
+  }
+  if (lower.includes("access to the specified native messaging host is forbidden")) {
+    return "The native host is installed for a different extension ID. Rerun the installer with the ID shown in Settings.";
+  }
+  if (lower.includes("native host has exited")) {
+    return "The native host exited early. Open Settings and run Check setup.";
+  }
+  return `Native host disconnected: ${message}`;
+}
+
+function explainHostError(message) {
+  if (/unsupported (preset|message type)/i.test(message)) {
+    return `${message}\nThe installed native host is older than this extension. Rebuild it (cargo build --release) or install the latest native host release.`;
+  }
+  return message;
 }
 
 async function recordLocalError(title, detail) {
-  const jobId = crypto.randomUUID();
-  await upsertJob({
-    id: jobId,
+  const now = new Date().toISOString();
+  await mutateJobs((jobs) => [{
+    id: crypto.randomUUID(),
     preset: "local_error",
     presetTitle: title,
     url: "",
+    title,
     status: "failed",
-    output: [{ stream: "error", line: detail, at: new Date().toISOString() }],
+    output: [{ stream: "error", line: detail, at: now }],
     logPath: "",
     finalPath: "",
-    startedAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString()
-  });
+    startedAt: now,
+    finishedAt: now
+  }, ...jobs]);
+  await bumpUnseenFailures();
   await updateBadge();
 }
 
 async function retryJob(jobId) {
-  const jobs = await getJobs();
-  const job = jobs.find((item) => item.id === jobId);
+  const job = (await readJobs()).find((item) => item.id === jobId);
   if (!job) {
-    return { ok: false, message: "Job not found." };
+    return { ok: false, message: "That job is no longer in the list." };
   }
-  if (!job.url || !job.preset) {
-    return { ok: false, message: "Job cannot be retried because it has no saved URL or preset." };
+  if (ACTIVE_STATUSES.has(job.status)) {
+    return { ok: false, message: "That job is still running." };
   }
-  if (job.status === "running" || job.status === "starting") {
-    return { ok: false, message: "Job is already running." };
+  if (!job.url || !presetById(job.preset)) {
+    return { ok: false, message: "This entry has no download to retry." };
   }
-
-  const preset = PRESETS.find((item) => item.id === job.preset);
-  if (!preset) {
-    return { ok: false, message: "Saved preset is no longer supported." };
+  const response = await startDownload(job.preset, job.url);
+  if (response.ok) {
+    await mutateJobs((jobs) => jobs.filter((item) => item.id !== jobId));
   }
-
-  const settings = await getSettings();
-  const missing = missingSettings(settings, preset);
-  if (missing.length > 0) {
-    return { ok: false, message: `Missing: ${missing.join(", ")}.` };
-  }
-
-  await rememberManualPreset(preset.id, settings);
-
-  await startNativeJob({
-    preset: preset.id,
-    presetTitle: preset.title,
-    url: job.url,
-    settings
-  });
-
-  return { ok: true };
+  return response;
 }
 
-async function startDownload(presetId, url) {
-  const preset = PRESETS.find((item) => item.id === presetId);
-  if (!preset) {
-    return { ok: false, message: "Unsupported preset." };
-  }
-
-  if (!isHttpUrl(url)) {
-    return { ok: false, message: "No supported http(s) URL is available for this tab." };
-  }
-
-  const settings = await getSettings();
-  const missing = missingSettings(settings, preset);
-  if (missing.length > 0) {
-    return { ok: false, message: `Missing: ${missing.join(", ")}. Open Settings.` };
-  }
-
-  await rememberManualPreset(preset.id, settings);
-
-  await startNativeJob({
-    preset: preset.id,
-    presetTitle: preset.title,
-    url,
-    settings
-  });
-
-  return { ok: true };
-}
-
-async function rememberManualPreset(presetId, settings) {
-  await chrome.storage.local.set({
-    settings: {
-      ...settings,
-      manualPreset: presetId
+async function cancelJob(jobId) {
+  const port = ports.get(jobId);
+  if (!port) {
+    const job = (await readJobs()).find((item) => item.id === jobId);
+    if (job && ACTIVE_STATUSES.has(job.status)) {
+      await finishJobWithError(jobId, "Cancelled, but the download had already lost contact with the extension.");
     }
-  });
+    return { ok: true };
+  }
+  await appendJobOutput(jobId, "Cancelling...", "hint");
+  port.postMessage({ type: "cancel" });
+  return { ok: true };
 }
 
-async function openJobFolder(jobId) {
-  const jobs = await getJobs();
-  const job = jobs.find((item) => item.id === jobId);
-  if (!job) {
-    return { ok: false, message: "Job not found." };
-  }
-
-  const settings = await getSettings();
-  const path = job.finalPath || settings.downloadDir;
-  if (!path) {
-    return { ok: false, message: "No download folder is configured." };
-  }
-
-  try {
-    const response = await sendNativeMessage({
-      type: "openPath",
-      path,
-      settings
-    });
-    return {
-      ok: Boolean(response?.ok),
-      message: response?.message || ""
-    };
-  } catch (error) {
-    return { ok: false, message: error.message || String(error) };
-  }
-}
-
-async function finishJobWithError(jobId, message) {
-  await appendJobOutput(jobId, message, "error");
-  await patchJob(jobId, {
-    status: "failed",
-    finishedAt: new Date().toISOString()
-  });
+async function removeJob(jobId) {
+  await mutateJobs((jobs) => jobs.filter((job) => job.id !== jobId || ACTIVE_STATUSES.has(job.status)));
   await updateBadge();
-}
-
-async function appendJobOutput(jobId, line, stream) {
-  const jobs = await getJobs();
-  const job = jobs.find((item) => item.id === jobId);
-  if (!job) {
-    return;
-  }
-
-  const output = [
-    ...(job.output || []),
-    { stream, line, at: new Date().toISOString() }
-  ].slice(-120);
-
-  await upsertJob({ ...job, output });
-}
-
-async function patchJob(jobId, patch) {
-  const jobs = await getJobs();
-  const next = jobs.map((job) => (job.id === jobId ? { ...job, ...patch } : job));
-  await chrome.storage.local.set({ jobs: next.slice(0, 30) });
-}
-
-async function upsertJob(job) {
-  const jobs = await getJobs();
-  const without = jobs.filter((item) => item.id !== job.id);
-  await chrome.storage.local.set({ jobs: [job, ...without].slice(0, 30) });
-}
-
-async function getJobs() {
-  const result = await chrome.storage.local.get({ jobs: [] });
-  return Array.isArray(result.jobs) ? result.jobs : [];
-}
-
-async function activeJobCount() {
-  const jobs = await getJobs();
-  return jobs.filter((job) => job.status === "running" || job.status === "starting").length;
+  return { ok: true };
 }
 
 async function clearCompletedJobs() {
-  const jobs = await getJobs();
-  const active = jobs.filter((job) => job.status === "running" || job.status === "starting");
-  await chrome.storage.local.set({ jobs: active });
+  await mutateJobs((jobs) => jobs.filter((job) => ACTIVE_STATUSES.has(job.status)));
+  await chrome.storage.local.set({ unseenFailures: 0 });
   await updateBadge();
+  return { ok: true };
 }
 
-async function markInterruptedJobs() {
-  const jobs = await getJobs();
-  const now = new Date().toISOString();
-  const next = jobs.map((job) => {
-    if (job.status === "running" || job.status === "starting") {
-      return {
-        ...job,
-        status: "failed",
-        finishedAt: now,
-        output: [
-          ...(job.output || []),
-          { stream: "error", line: "Browser restarted before this job reported completion.", at: now }
-        ].slice(-120)
-      };
-    }
-    return job;
+async function openJobPath(jobId, which) {
+  const settings = await getSettings();
+  const job = (await readJobs()).find((item) => item.id === jobId);
+  const path = which === "log" ? job?.logPath : (job?.finalPath || settings.downloadDir);
+  if (!path) {
+    return { ok: false, message: which === "log" ? "This job has no log file." : "Set a download folder in Settings first." };
+  }
+  const response = await sendNativeMessage({ type: "openPath", path, settings: hostSettings(settings) });
+  return { ok: Boolean(response?.ok), message: response?.message || "" };
+}
+
+// ---------------------------------------------------------------------------
+// Badge and notifications
+
+async function bumpUnseenFailures() {
+  await withStorageLock(async () => {
+    const { unseenFailures } = await chrome.storage.local.get({ unseenFailures: 0 });
+    await chrome.storage.local.set({ unseenFailures: Number(unseenFailures || 0) + 1 });
   });
-  await chrome.storage.local.set({ jobs: next });
+}
+
+async function markFailuresSeen() {
+  await chrome.storage.local.set({ unseenFailures: 0 });
+  await updateBadge();
+  return { ok: true };
 }
 
 async function updateBadge() {
-  const jobs = await getJobs();
-  const running = jobs.filter((job) => job.status === "running" || job.status === "starting").length;
-  await chrome.action.setBadgeText({ text: running ? String(running) : "" });
-  await chrome.action.setBadgeBackgroundColor({ color: running ? "#1d4ed8" : "#64748b" });
+  const jobs = await readJobs();
+  const { unseenFailures } = await chrome.storage.local.get({ unseenFailures: 0 });
+  const running = jobs.filter((job) => ACTIVE_STATUSES.has(job.status)).length;
+  if (running) {
+    await chrome.action.setBadgeText({ text: String(running) });
+    await chrome.action.setBadgeBackgroundColor({ color: "#2563eb" });
+  } else if (unseenFailures > 0) {
+    await chrome.action.setBadgeText({ text: "!" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+  } else {
+    await chrome.action.setBadgeText({ text: "" });
+  }
+}
+
+async function notifyFinished(job) {
+  const settings = await getSettings();
+  if (!settings.notifyOnFinish || job.preset === "local_error") {
+    return;
+  }
+  const ok = job.status === "complete";
+  const name = job.finalPath ? basename(job.finalPath) : job.title || job.url;
+  const lastError = [...(job.output || [])].reverse().find((entry) => entry.stream === "error" || entry.stream === "stderr");
+  const many = job.fileCount > 1 ? ` (${job.fileCount} files)` : "";
+  chrome.notifications.create(`job:${job.id}`, {
+    type: "basic",
+    iconUrl: "icons/icon128.png",
+    title: ok ? `Saved${many}` : "Download failed",
+    message: ok ? name : (lastError?.line || name || "Open the popup for details.").slice(0, 200),
+    contextMessage: job.presetTitle || "",
+    priority: 0
+  });
+}
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  if (notificationId.startsWith("job:")) {
+    openJobPath(notificationId.slice(4), "final").catch(() => {});
+    chrome.notifications.clear(notificationId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Native host helpers and updates
+
+function sendNativeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendNativeMessage(HOST_NAME, message, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(nativeHostErrorMessage(error.message)));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function getHostInfo(force) {
+  if (!force && hostInfoCache && Date.now() - hostInfoCache.at < HOST_INFO_TTL_MS) {
+    return hostInfoCache.info;
+  }
+  let info;
+  try {
+    const response = await sendNativeMessage({ type: "version" });
+    info = response?.type === "version"
+      ? { ok: true, hostVersion: String(response.hostVersion || ""), presets: response.presets || [] }
+      : { ok: true, hostVersion: "1.0.0", presets: [], outdated: true };
+  } catch (error) {
+    info = { ok: false, message: errorText(error) };
+  }
+  if (info.ok) {
+    const unsupported = PRESETS.filter((preset) => !info.presets.includes(preset.id)).map((preset) => preset.id);
+    info.outdated = info.outdated || compareVersions(info.hostVersion, EXTENSION_VERSION) < 0 || unsupported.length > 0;
+    info.extensionVersion = EXTENSION_VERSION;
+  }
+  hostInfoCache = { at: Date.now(), info };
+  return info;
+}
+
+async function activeJobCount() {
+  return (await readJobs()).filter((job) => ACTIVE_STATUSES.has(job.status)).length;
+}
+
+async function maybeAutoUpdateYtDlp(source) {
+  const settings = await getSettings();
+  if (!settings.autoUpdateYtDlp || !settings.ytDlpPath || await activeJobCount() > 0) {
+    return;
+  }
+  const state = await chrome.storage.local.get({ lastYtDlpUpdateAt: 0, lastYtDlpUpdateAttemptAt: 0 });
+  const now = Date.now();
+  if (now - Number(state.lastYtDlpUpdateAt) < YT_DLP_UPDATE_INTERVAL_MS
+    || now - Number(state.lastYtDlpUpdateAttemptAt) < YT_DLP_UPDATE_RETRY_MS) {
+    return;
+  }
+  await runYtDlpUpdate(source);
+}
+
+async function runYtDlpUpdate(source) {
+  if (await activeJobCount() > 0) {
+    return { ok: false, exitCode: null, output: "Wait for running downloads to finish, then update." };
+  }
+  const settings = await getSettings();
+  await chrome.storage.local.set({ lastYtDlpUpdateAttemptAt: Date.now() });
+
+  let response;
+  try {
+    response = await sendNativeMessage({ type: "updateYtDlp", settings: hostSettings(settings) });
+  } catch (error) {
+    response = { ok: false, exitCode: null, output: errorText(error) };
+  }
+
+  const result = {
+    ok: Boolean(response?.ok),
+    exitCode: response?.exitCode ?? null,
+    output: String(response?.output || ""),
+    source,
+    at: new Date().toISOString()
+  };
+  await chrome.storage.local.set({
+    lastYtDlpUpdateResult: result,
+    ...(result.ok ? { lastYtDlpUpdateAt: Date.now() } : {})
+  });
+  if (!result.ok && source !== "manual") {
+    await recordLocalError("Automatic yt-dlp update failed", `exit ${result.exitCode ?? "unknown"}\n${result.output}`.trim());
+  }
+  return result;
+}
+
+async function maybeCheckExtensionUpdate(force) {
+  const settings = await getSettings();
+  const { extensionUpdate } = await chrome.storage.local.get({ extensionUpdate: null });
+  if (!force && (!settings.checkExtensionUpdates
+    || (extensionUpdate && Date.now() - Number(extensionUpdate.checkedAt || 0) < EXTENSION_UPDATE_INTERVAL_MS))) {
+    return extensionUpdate;
+  }
+
+  const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    headers: { Accept: "application/vnd.github+json" },
+    cache: "no-store",
+    credentials: "omit"
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub returned ${response.status}.`);
+  }
+  const release = await response.json();
+  const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
+  const htmlUrl = String(release.html_url || "");
+  const next = {
+    checkedAt: Date.now(),
+    currentVersion: EXTENSION_VERSION,
+    latestVersion,
+    // Only ever link to this repository's release pages.
+    url: htmlUrl.startsWith(`${RELEASES_URL}/`) ? htmlUrl : RELEASES_URL,
+    available: compareVersions(latestVersion, EXTENSION_VERSION) > 0
+  };
+  await chrome.storage.local.set({ extensionUpdate: next });
+  return next;
+}
+
+function errorText(error) {
+  return error?.message || String(error);
 }

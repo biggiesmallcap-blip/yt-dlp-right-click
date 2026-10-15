@@ -1,172 +1,218 @@
-:root {
-  color-scheme: light dark;
-  font-family: Arial, Helvetica, sans-serif;
+body {
+  font-size: 14px;
 }
 
-body {
+.page-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.page-head-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 760px;
+  height: 56px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+h1 {
   margin: 0;
-  background: Canvas;
-  color: CanvasText;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.version {
+  color: var(--ink-faint);
+}
+
+.save-state {
+  margin-left: auto;
+  color: var(--green);
+  font-size: 13px;
+}
+
+.save-state.bad {
+  color: var(--red-ink);
 }
 
 main {
   max-width: 760px;
   margin: 0 auto;
-  padding: 40px 24px;
-}
-
-header {
-  margin-bottom: 28px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.brand img {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-}
-
-h1 {
-  margin: 0;
-  font-size: 28px;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
-
-p {
-  margin: 0;
-  color: color-mix(in srgb, CanvasText 70%, Canvas 30%);
-}
-
-.setup-panel {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 24px;
-  border: 1px solid color-mix(in srgb, CanvasText 16%, Canvas 84%);
-  border-radius: 8px;
-  padding: 14px;
-  background: color-mix(in srgb, CanvasText 3%, Canvas 97%);
-}
-
-h2 {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
-
-.setup-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.setup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.note {
-  font-size: 13px;
-  line-height: 1.4;
+  padding: 20px 20px 64px;
 }
 
 form {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
-label {
+.panel {
   display: grid;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 700;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 20px 20px;
+  background: var(--surface);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.panel-head p {
+  max-width: 62ch;
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 6px 16px;
+  align-items: start;
+}
+
+.field > label {
+  padding-top: 6px;
+  font-weight: 600;
+}
+
+.control {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.control input[type="text"],
+.control select {
+  width: 100%;
 }
 
 input[type="text"] {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas 76%);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font: 14px Consolas, "Courier New", monospace;
-  background: Canvas;
-  color: CanvasText;
-}
-
-select {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas 76%);
-  border-radius: 6px;
-  padding: 8px 10px;
-  background: Canvas;
-  color: CanvasText;
-  font: 14px Arial, Helvetica, sans-serif;
-}
-
-.checkbox {
-  grid-template-columns: 20px 1fr;
-  align-items: start;
-  font-weight: 400;
-}
-
-.checkbox input {
-  margin-top: 2px;
-}
-
-.warning {
-  margin: -8px 0 0;
-  color: #b45309;
+  font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.4;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
+input[readonly] {
+  background: var(--surface-sunk);
+}
+
+.copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.help {
+  max-width: 64ch;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
-  margin-top: 8px;
-}
-
-button {
-  min-height: 40px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 8px 14px;
-  font: 700 14px Arial, Helvetica, sans-serif;
+  align-items: start;
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
-button[type="submit"] {
-  background: #0f766e;
-  color: white;
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--red);
 }
 
-button[type="button"] {
-  background: color-mix(in srgb, CanvasText 8%, Canvas 92%);
-  color: CanvasText;
-  border-color: color-mix(in srgb, CanvasText 18%, Canvas 82%);
+.toggle strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
 }
 
-#status {
-  margin-top: 22px;
+.panel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-foot button {
+  min-height: 32px;
+  padding-inline: 14px;
+}
+
+.result {
+  display: grid;
+  gap: 6px;
+  border-left: 3px solid var(--line-strong);
+  padding: 10px 12px;
+  background: var(--surface-sunk);
+  font-size: 13px;
+}
+
+.result[hidden] {
+  display: none;
+}
+
+.result.good {
+  border-left-color: var(--green);
+}
+
+.result.warn {
+  border-left-color: var(--amber);
+}
+
+.result.bad {
+  border-left-color: var(--red);
+}
+
+.result ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.result dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 14px;
+  margin: 0;
+}
+
+.result dt {
+  color: var(--ink-faint);
+}
+
+.result dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.result pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  font: 12px/1.45 var(--font-mono);
   white-space: pre-wrap;
-  font: 13px Consolas, "Courier New", monospace;
 }
 
-.ok {
-  color: #0f766e;
-}
+@media (max-width: 560px) {
+  .field {
+    grid-template-columns: 1fr;
+  }
 
-.error {
-  color: #b91c1c;
+  .field > label {
+    padding-top: 0;
+  }
 }
